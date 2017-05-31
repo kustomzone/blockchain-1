@@ -18,16 +18,17 @@ type block struct {
 	data      string
 }
 
-// calc sha256 hash
+// calc sha256x2 hash
 func calcHash(b *block) string {
 	h := sha256.New()
+	h.Write([]byte(string(b.index) + b.pHash + b.timestamp.String() + b.data))
 	h.Write([]byte(string(b.index) + b.pHash + b.timestamp.String() + b.data))
 	return string(h.Sum(nil))
 }
 
 // returns next block
 func createNextBlock(data string) *block {
-	var latestBlock = getLatestBlock()
+	var latestBlock = latestBlock()
 
 	blk := &block{
 		index:     latestBlock.index + 1,
@@ -36,24 +37,24 @@ func createNextBlock(data string) *block {
 		data:      data,
 	}
 	blk.hash = calcHash(blk)
-
 	return blk
 }
 
 // returns latest block
-func getLatestBlock() *block {
+func latestBlock() *block {
 	return blockchain[len(blockchain)-1]
 }
 
 // returns genesis block
-func getGenesisBlock() *block {
-	return &block{
+func genesisBlock() *block {
+	blk := &block{
 		index:     0,
 		pHash:     "0",
 		timestamp: time.Now(),
-		hash:      "0",
 		data:      "genesis block",
 	}
+	blk.hash = calcHash(blk)
+	return blk
 }
 
 // block validation
@@ -68,8 +69,7 @@ func isValidBlock(nBlock, pBlock *block) bool {
 }
 
 func main() {
-	blockchain = append(blockchain, getGenesisBlock())
+	blockchain = append(blockchain, genesisBlock())
 	blockchain = append(blockchain, createNextBlock("some data"))
-
 	fmt.Println(isValidBlock(blockchain[1], blockchain[0]))
 }

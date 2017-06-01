@@ -1,4 +1,4 @@
-package blockchain
+package main
 
 import (
 	"crypto/sha256"
@@ -16,12 +16,12 @@ var (
 )
 
 type Block struct {
-	index        int
-	prevHash     string
-	hash         string
-	timestamp    time.Time
-	transactions []*Transaction
-	task         *Task
+	index     int
+	prevHash  string
+	hash      string
+	timestamp time.Time
+	fact      []*interface{}
+	task      *Task
 }
 
 type Task struct {
@@ -58,13 +58,8 @@ func init() {
 }
 
 func (b *Block) String() string {
-	var transactions string
-	for _, t := range b.transactions {
-		transactions += strconv.FormatFloat(t.amount, 'f', 6, 64) + t.from + t.to
-	}
-
-	return b.prevHash + b.timestamp.String() + transactions +
-		string(b.index+b.task.end+b.task.start+b.task.complexity)
+	return b.prevHash + b.timestamp.String() +
+		fmt.Sprint(b.fact, b.index, b.task.end, b.task.start, b.task.complexity)
 }
 
 func calcHash(b *Block) string {
@@ -86,7 +81,10 @@ func createNextBlock() *Block {
 }
 
 func mine(decision string) bool {
-	if strings.Contains(decision[tmpBlk.task.start:tmpBlk.task.end], strconv.Itoa(tmpBlk.task.complexity)) {
+	if strings.Contains(
+		decision[tmpBlk.task.start:tmpBlk.task.end],
+		strconv.Itoa(tmpBlk.task.complexity),
+	) {
 		if isValidBlock(tmpBlk, latestBlock()) {
 			tmpBlk.hash = calcHash(tmpBlk)
 			blockchain = append(blockchain, tmpBlk)
@@ -99,25 +97,21 @@ func mine(decision string) bool {
 	return false
 }
 
-func addTransaction(amount float64, from, to string) {
-	tmpBlk.transactions = append(tmpBlk.transactions, &Transaction{
-		amount: amount,
-		from:   from,
-		to:     to,
-	})
+func addFact(data *interface{}) {
+	tmpBlk.fact = append(tmpBlk.fact, data)
 }
 
-func transaction(index int) ([]*Transaction, error) {
+func fact(index int) ([]*interface{}, error) {
 	if index >= len(blockchain) || index < 0 {
 		return nil, errors.New("invalid block index")
 	}
-	return blockchain[index].transactions, nil
+	return blockchain[index].fact, nil
 }
 
-func transactions() (t []*Transaction) {
+func facts() (i []*interface{}) {
 	for _, block := range blockchain {
-		for _, bt := range block.transactions {
-			t = append(t, bt)
+		for _, bt := range block.fact {
+			i = append(i, bt)
 		}
 	}
 	return
@@ -137,8 +131,10 @@ func generateTask() *Task {
 	var start, end int
 
 	for {
-		start = rand.Intn(32) + 0
-		end = rand.Intn(33) + 1
+		// 0 - 31
+		start = rand.Intn(32)
+		// 1 - 32
+		end = rand.Intn(32) + 1
 
 		if start < end {
 			break
@@ -148,6 +144,6 @@ func generateTask() *Task {
 	return &Task{
 		start:      start,
 		end:        end,
-		complexity: rand.Intn(end-1) + start,
+		complexity: rand.Intn(end) + start,
 	}
 }

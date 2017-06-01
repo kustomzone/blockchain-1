@@ -3,20 +3,10 @@ package main
 import (
 	"crypto/sha256"
 	"fmt"
-	"math/rand"
+	"strconv"
 	"testing"
 	"time"
 )
-
-const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-
-func RandStringBytes(n int) []byte {
-	b := make([]byte, n)
-	for i := range b {
-		b[i] = letterBytes[rand.Intn(len(letterBytes))]
-	}
-	return b
-}
 
 func TestMine(t *testing.T) {
 	var (
@@ -24,8 +14,10 @@ func TestMine(t *testing.T) {
 		timeMining         time.Time
 	)
 
-	for range time.Tick(time.Millisecond * 25) {
-		mine(fmt.Sprintf("%x", sha256.Sum256(RandStringBytes(10))))
+	go checkBlockLifetime()
+
+	for i := 0; i < 1000000; i++ {
+		mine(fmt.Sprintf("%x", sha256.Sum256([]byte(strconv.Itoa(i)))))
 
 		if localBlockChainLen != len(blockchain) {
 			localBlockChainLen = len(blockchain)

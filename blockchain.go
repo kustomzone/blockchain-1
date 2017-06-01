@@ -2,122 +2,144 @@ package main
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"math/rand"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
 var (
-	tempBlock = &block{
-		height:      latestBlock().height + 1,
-		pHash:       latestBlock().hash,
-		timestamp:   time.Now(),
-		transaction: nil,
+	tmpBlk = &Block{
+		index:     1,
+		prevHash:  latestBlock().hash,
+		timestamp: time.Now(),
 	}
 
-	task       = "0"
-	complexity = 1
+	task string
 
-	blockchain = []*block{genesisBlock()}
+	blockchain = []*Block{{
+		index:        0,
+		prevHash:     "0",
+		timestamp:    time.Now(),
+		transactions: []*Transaction{},
+		hash:         "0",
+	}}
 )
 
-type block struct {
-	sync.Mutex
-	height      int
-	pHash       string
-	hash        string
-	timestamp   time.Time
-	transaction []*transaction
+func init() {
+	rand.Seed(time.Now().UnixNano())
+	task = generateTask()
 }
 
-type transaction struct {
-	cash float64
-	from string
-	to   string
+type Block struct {
+	index        int
+	prevHash     string
+	hash         string
+	timestamp    time.Time
+	transactions []*Transaction
 }
 
-func (b *block) String() string {
-	var data string
+type Transaction struct {
+	amount float64
+	from   string
+	to     string
+}
 
-	for _, d := range b.transaction {
-		data += strconv.FormatFloat(d.cash, 'f', 6, 64) + d.from + d.to
+func (b *Block) String() string {
+	var transactions string
+	for _, t := range b.transactions {
+		transactions += strconv.FormatFloat(t.amount, 'f', 6, 64) + t.from + t.to
 	}
 
-	return string(b.height) + b.pHash + b.timestamp.String() + data
+	return string(b.index) + b.prevHash + b.timestamp.String() + transactions
 }
 
-func calcHash(b *block) string {
+func calcHash(b *Block) string {
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(b.String())))
 }
 
-func latestBlock() *block {
+func latestBlock() *Block {
 	return blockchain[len(blockchain)-1]
+}
+
+func createNextBlock() *Block {
+	latestBlock := latestBlock()
+	return &Block{
+		index:     latestBlock.index + 1,
+		timestamp: time.Now(),
+		prevHash:  latestBlock.hash,
+	}
 }
 
 func mine(decision string) {
 	if strings.Contains(decision, task) {
-		if isValidBlock(tempBlock, latestBlock()) {
-			tempBlock.hash = calcHash(tempBlock)
+		if isValidBlock(tmpBlk, latestBlock()) {
+			tmpBlk.hash = calcHash(tmpBlk)
+			blockchain = append(blockchain, tmpBlk)
 
-			blockchain = append(blockchain, tempBlock)
-
-			tempBlock = &block{
-				height:      tempBlock.height + 1,
-				pHash:       tempBlock.hash,
-				timestamp:   time.Now(),
-				transaction: nil,
-			}
-
-			task = ""
-			complexity = rand.Intn(2) + 2
-			for i := 0; i < complexity; i++ {
-				task += "0"
-			}
+			tmpBlk = createNextBlock()
+			task = generateTask()
 		}
 	}
 }
 
-func addTransaction(cash float64, from, to string) {
-	tempBlock.transaction = append(tempBlock.transaction, &transaction{
-		cash: cash,
-		from: from,
-		to:   to,
+func addTransaction(amount float64, from, to string) {
+	tmpBlk.transactions = append(tmpBlk.transactions, &Transaction{
+		amount: amount,
+		from:   from,
+		to:     to,
 	})
 }
 
-func getTransactions(height int) []*transaction {
-	return blockchain[len(blockchain)-1].transaction
+func transaction(index int) ([]*Transaction, error) {
+	if index >= len(blockchain) || index < 0 {
+		return nil, errors.New("invalid block index")
+	}
+	return blockchain[index].transactions, nil
 }
 
-func getAllTransactions() (t []*transaction) {
+func transactions() (t []*Transaction) {
 	for _, block := range blockchain {
-		for _, bt := range block.transaction {
+		for _, bt := range block.transactions {
 			t = append(t, bt)
 		}
 	}
 	return
 }
 
-func genesisBlock() *block {
-	blk := &block{
-		height:      0,
-		pHash:       "0",
-		timestamp:   time.Now(),
-		transaction: []*transaction{},
-	}
-	blk.hash = calcHash(blk)
-	return blk
-}
-
-func isValidBlock(nBlock, pBlock *block) bool {
-	if pBlock.height+1 != nBlock.height &&
-		pBlock.hash != nBlock.pHash &&
+func isValidBlock(nBlock, pBlock *Block) bool {
+	if pBlock.index+1 != nBlock.index &&
+		pBlock.hash != nBlock.prevHash &&
 		calcHash(nBlock) != nBlock.hash {
 
 		return false
 	}
 	return true
+}
+
+func checkBlockLifetime() {
+	for range time.Tick(time.Second) {
+		if time.Since(latestBlock().timestamp) > time.Second*10 {
+			removeBlock(latestBlock().index)
+		}
+	}
+}
+
+func removeBlock(index int) {
+	blockchain = append(blockchain[:index], blockchain[index+1:]...)
+}
+
+func generateTask() string {
+	var (
+		task       = ""
+		complexity = rand.Intn(9) + 2
+	)
+
+	for i := 0; i < complexity; i++ {
+		task += "0"
+	}
+
+	return task
 }

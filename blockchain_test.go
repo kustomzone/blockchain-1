@@ -1,4 +1,4 @@
-package main
+package blockchain
 
 import (
 	"crypto/sha256"
@@ -9,20 +9,11 @@ import (
 )
 
 func TestMine(t *testing.T) {
-	var (
-		localBlockChainLen = 0
-		timeMining         time.Time
-	)
-
-	go checkBlockLifetime()
+	var timeMining = time.Now()
 
 	for i := 0; i < 1000000; i++ {
-		mine(fmt.Sprintf("%x", sha256.Sum256([]byte(strconv.Itoa(i)))))
-
-		if localBlockChainLen != len(blockchain) {
-			localBlockChainLen = len(blockchain)
-			fmt.Println(localBlockChainLen, " --- ", time.Since(timeMining))
-
+		if mine(fmt.Sprintf("%x", sha256.Sum256([]byte(strconv.Itoa(i))))) {
+			t.Log(time.Since(timeMining))
 			timeMining = time.Now()
 		}
 	}

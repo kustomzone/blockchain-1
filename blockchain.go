@@ -6,18 +6,26 @@ import (
 	"math/rand"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
-    "log"
 )
 
 var (
+	tempBlock = &block{
+		height:      latestBlock().height + 1,
+		pHash:       latestBlock().hash,
+		timestamp:   time.Now(),
+		transaction: nil,
+	}
+
+	task       = "0"
+	complexity = 1
+
 	blockchain = []*block{genesisBlock()}
-	complexity int
-	tempBlock  *block
-	task       string
 )
 
 type block struct {
+	sync.Mutex
 	height      int
 	pHash       string
 	hash        string
@@ -29,17 +37,6 @@ type transaction struct {
 	cash float64
 	from string
 	to   string
-}
-
-func init() {
-	task = "0"
-
-	tempBlock = &block{
-		height:      latestBlock().height + 1,
-		pHash:       latestBlock().hash,
-		timestamp:   time.Now(),
-		transaction: nil,
-	}
 }
 
 func (b *block) String() string {
@@ -61,12 +58,10 @@ func latestBlock() *block {
 }
 
 func mine(decision string) {
-    log.Println(decision)
-    log.Println(task)
-    log.Println()
 	if strings.Contains(decision, task) {
 		if isValidBlock(tempBlock, latestBlock()) {
 			tempBlock.hash = calcHash(tempBlock)
+
 			blockchain = append(blockchain, tempBlock)
 
 			tempBlock = &block{
@@ -76,7 +71,8 @@ func mine(decision string) {
 				transaction: nil,
 			}
 
-			complexity = rand.Intn(2)
+			task = ""
+			complexity = rand.Intn(2) + 2
 			for i := 0; i < complexity; i++ {
 				task += "0"
 			}

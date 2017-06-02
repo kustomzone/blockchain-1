@@ -107,9 +107,6 @@ func mine(decision string) bool {
 	return false
 }
 
-func addFact(data *interface{}) {
-}
-
 func isValidBlock(nBlock, pBlock *Block) bool {
 	if pBlock.index+1 != nBlock.index &&
 		pBlock.hash != nBlock.prevHash &&
@@ -164,8 +161,13 @@ func main() {
 	// http server
 	go func() {
 		http.HandleFunc("/blocks", func(w http.ResponseWriter, r *http.Request) {
+			buf, err := json.Marshal(&blockchain)
+			if err != nil {
+				log.Fatal(err)
+			}
+
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(blockchain))
+			w.Write(buf)
 		})
 
 		http.HandleFunc("/facts", func(w http.ResponseWriter, r *http.Request) {
@@ -199,8 +201,13 @@ func main() {
 		})
 
 		http.HandleFunc("/nodes", func(w http.ResponseWriter, r *http.Request) {
+			buf, err := json.Marshal(nodes)
+			if err != nil {
+				log.Fatal(err)
+			}
+
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(nodes))
+			w.Write(buf)
 		})
 
 		log.Fatal(http.ListenAndServe(":"+httpPort, nil))

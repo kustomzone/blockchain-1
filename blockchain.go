@@ -120,6 +120,21 @@ func isValidBlock(nBlock, pBlock *Block) bool {
 	return true
 }
 
+func isValidChain(chain []*Block) bool {
+	for i, _ := range chain {
+		if !isValidBlock(chain[i], chain[i-1]) {
+			return false
+		}
+	}
+	return true
+}
+
+func replaceChain(localChain, remoteChain []*Block) {
+	if isValidChain(remoteChain) && len(localChain) <= len(remoteChain) {
+		blockchain = remoteChain
+	}
+}
+
 func generateTask() *Task {
 	var start, end int
 
@@ -194,8 +209,23 @@ func main() {
 	// websocket server
 	go func() {
 		http.Handle("/peer", websocket.Handler(func(ws *websocket.Conn) {
-			go func() {}()
-			go func() {}()
+			for {
+				buf := make([]byte, 10240)
+				n, err := ws.Read(buf)
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				var blk *Block
+				err = json.Unmarshal(buf[:n], blk)
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				if isValidBlock(blk, latestBlock()) {
+					blockchain = append(blockchain, blk)
+				}
+			}
 		}))
 
 		log.Fatal(http.ListenAndServe(":"+wsPort, nil))

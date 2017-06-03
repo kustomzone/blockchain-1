@@ -8,6 +8,7 @@ import (
 	"golang.org/x/net/websocket"
 	"log"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -24,7 +25,6 @@ var (
 	iPeer    = *flag.String("iperr", "", "init peer address")
 	wsPort   = *flag.String("hport", "", "set http port")
 	httpPort = *flag.String("wsport", "", "set ws port")
-	nodes    []websocket.Addr
 
 	successMineNotify = make(chan *Block)
 )
@@ -158,6 +158,8 @@ func main() {
 	defer close(done)
 	signal.Notify(done, syscall.SIGINT, syscall.SIGTERM)
 
+	var nodes []net.Addr
+
 	// http server
 	go func() {
 		http.HandleFunc("/blocks", func(w http.ResponseWriter, r *http.Request) {
@@ -216,6 +218,7 @@ func main() {
 	// websocket server
 	go func() {
 		http.Handle("/peer", websocket.Handler(func(ws *websocket.Conn) {
+			nodes = append(nodes, ws.RemoteAddr())
 			for {
 				buf := make([]byte, 10240)
 				n, err := ws.Read(buf)
@@ -263,7 +266,7 @@ func main() {
 
 	for _, node := range nodes {
 		go func() {
-			ws, err := websocket.Dial(node.String()+"peer", "", "http://localhost")
+			ws, err := websocket.Dial("ws://"+node.String()+"/peer", "", "http://localhost")
 			if err != nil {
 				log.Fatal(err)
 			}

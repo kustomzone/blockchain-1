@@ -10,7 +10,8 @@ ENV PATH=$PATH:$GOROOT/bin:$GOPATH/bin:/usr/local/bin
 WORKDIR /go/src/github.com/lavrs/blockchain
 ADD . /go/src/github.com/lavrs/blockchain
 
-RUN go install \
+RUN go get ./... \
+    && go install \
     && go build
 
 ENTRYPOINT ["/go/bin/blockchain"]

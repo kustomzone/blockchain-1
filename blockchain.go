@@ -7,73 +7,56 @@ import (
 	"fmt"
 	"golang.org/x/net/websocket"
 	"log"
-	"math/rand"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
 )
 
 var (
-	tmpBlk     *Block
 	blockchain []*Block
+	block      *Block
 
-	iPeer    = *flag.String("iperr", "", "init peer address")
-	wsPort   = *flag.String("hport", "", "set http port")
-	httpPort = *flag.String("wsport", "", "set ws port")
+	iPeer    = flag.String("iperr", "", "init peer address")
+	httpPort = flag.String("hport", "", "set http port")
+	wsPort   = flag.String("wsport", "", "set ws port")
 
-	successMineNotify = make(chan *Block)
+	records    []*interface{}
+	mineNotify = make(chan *Block)
+
+	complexity = 1
 )
 
 type Block struct {
-	index     int
-	prevHash  string
-	hash      string
-	timestamp time.Time
-	facts     []*interface{}
-	task      *Task
-}
-
-type Task struct {
-	start      int
-	end        int
-	complexity int
+	Index     int            `json:"index"`
+	Hash      string         `json:"hash"`
+	PrevHash  string         `json:"prev_hash"`
+	Timestamp time.Time      `json:"timestamp"`
+	Facts     []*interface{} `json:"facts,omitempty"`
 }
 
 func init() {
 	flag.Parse()
 
-	rand.Seed(time.Now().UnixNano())
+	blockchain = []*Block{{
+		Index:     0,
+		PrevHash:  "0",
+		Timestamp: time.Now(),
+	}}
+	blockchain[0].Hash = calcHash(blockchain[0].String())
 
-	blk := &Block{
-		timestamp: time.Now(),
-		prevHash:  "0",
-		task:      generateTask(),
-		index:     0,
-	}
-	blk.hash = calcHash(blk)
-
-	blockchain = []*Block{blk}
-
-	tmpBlk = &Block{
-		index:     1,
-		prevHash:  latestBlock().hash,
-		timestamp: time.Now(),
-		task:      generateTask(),
-	}
+	block = createNextBlock()
 }
 
 func (b *Block) String() string {
-	return b.prevHash + b.timestamp.String() +
-		fmt.Sprint(b.facts, b.index, b.task.end, b.task.start, b.task.complexity)
+	return b.PrevHash + b.Timestamp.String() +
+		fmt.Sprint(b.Index, b.Facts)
 }
 
-func calcHash(b *Block) string {
-	return fmt.Sprintf("%x", sha256.Sum256([]byte(b.String())))
+func calcHash(str string) string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(str)))
 }
 
 func latestBlock() *Block {
@@ -81,144 +64,100 @@ func latestBlock() *Block {
 }
 
 func createNextBlock() *Block {
-	latestBlock := latestBlock()
-	return &Block{
-		index:     latestBlock.index + 1,
-		timestamp: time.Now(),
-		prevHash:  latestBlock.hash,
-		task:      generateTask(),
-	}
+	var (
+		latestBlk = latestBlock()
+
+		blk = &Block{
+			Index:     latestBlk.Index + 1,
+			PrevHash:  latestBlk.Hash,
+			Timestamp: time.Now(),
+			Facts:     records,
+		}
+	)
+
+	blk.Hash = calcHash(blk.String())
+	return blk
 }
 
-func mine(decision string) bool {
-	if strings.Contains(
-		decision[tmpBlk.task.start:tmpBlk.task.end],
-		strconv.Itoa(tmpBlk.task.complexity),
-	) {
-		if isValidBlock(tmpBlk, latestBlock()) {
-			tmpBlk.hash = calcHash(tmpBlk)
-			blockchain = append(blockchain, tmpBlk)
+func mine(nonce string) {
+	if strings.Count(calcHash(nonce)[:complexity], "0") == complexity {
+		if isValidBlock(block, latestBlock()) {
+			if time.Since(block.Timestamp) < time.Second*10 {
+				complexity++
+			} else {
+				complexity--
+			}
+			block.Facts = records
+			blockchain = append(blockchain, block)
 
-			tmpBlk = createNextBlock()
+			mineNotify <- block
 
-			return true
+			block = createNextBlock()
+			records = nil
 		}
 	}
-	return false
 }
 
 func isValidBlock(nBlock, pBlock *Block) bool {
-	if pBlock.index+1 != nBlock.index &&
-		pBlock.hash != nBlock.prevHash &&
-		calcHash(nBlock) != nBlock.hash {
+	if pBlock.Index+1 != nBlock.Index ||
+		pBlock.Hash != nBlock.PrevHash ||
+		calcHash(nBlock.String()) != nBlock.Hash {
 
 		return false
 	}
 	return true
 }
 
-func isValidChain(chain []*Block) bool {
-	for i, _ := range chain {
-		if !isValidBlock(chain[i], chain[i-1]) {
-			return false
-		}
-	}
-	return true
-}
-
-func replaceChain(localChain, remoteChain []*Block) {
-	if isValidChain(remoteChain) && len(localChain) <= len(remoteChain) {
-		blockchain = remoteChain
-	}
-}
-
-func generateTask() *Task {
-	var start, end int
-
-	for {
-		// 0 - 31
-		start = rand.Intn(32)
-		// 1 - 32
-		end = rand.Intn(32) + 1
-
-		if start < end {
-			break
-		}
-	}
-
-	return &Task{
-		start:      start,
-		end:        end,
-		complexity: rand.Intn(end) + start,
-	}
-}
-
 func main() {
-	done := make(chan os.Signal)
-	defer close(done)
-	signal.Notify(done, syscall.SIGINT, syscall.SIGTERM)
-
-	var nodes []net.Addr
+	var nodes []string
 
 	// http server
 	go func() {
 		http.HandleFunc("/blocks", func(w http.ResponseWriter, r *http.Request) {
-			buf, err := json.Marshal(&blockchain)
+			w.Header().Set("Content-Type", "application/json")
+			err := json.NewEncoder(w).Encode(blockchain)
 			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
 				log.Fatal(err)
 			}
-
-			w.WriteHeader(http.StatusOK)
-			w.Write(buf)
 		})
 
-		http.HandleFunc("/facts", func(w http.ResponseWriter, r *http.Request) {
-			switch r.Method {
-			case http.MethodGet:
-				var facts string
-				for _, block := range blockchain {
-					facts += fmt.Sprint(block.facts)
+		http.HandleFunc("/fact", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPost {
+				var fact interface{}
+				err := json.NewDecoder(r.Body).Decode(&fact)
+				if err != nil {
+					log.Fatal(err)
 				}
 
-				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(facts))
-			case http.MethodPost:
-				var (
-					buf  = make([]byte, 10240)
-					fact interface{}
-				)
-				n, err := r.Body.Read(buf)
-				if err != nil {
-					w.WriteHeader(http.StatusBadRequest)
-					break
-				}
-				err = json.Unmarshal(buf[:n], fact)
-				tmpBlk.facts = append(tmpBlk.facts, &fact)
-				w.WriteHeader(http.StatusOK)
+				records = append(records, &fact)
 			}
 		})
 
 		http.HandleFunc("/mine", func(w http.ResponseWriter, r *http.Request) {
-			mine(r.URL.Query().Get("decision"))
+			go mine(r.URL.Query().Get("nonce"))
+			w.WriteHeader(http.StatusOK)
 		})
 
 		http.HandleFunc("/nodes", func(w http.ResponseWriter, r *http.Request) {
-			buf, err := json.Marshal(nodes)
+			err := json.NewEncoder(w).Encode(&map[string]interface{}{
+				"nodes":    nodes,
+				"initaddr": "localhost:" + *wsPort,
+			})
 			if err != nil {
-				log.Fatal(err)
+				log.Panic(err)
 			}
-
-			w.WriteHeader(http.StatusOK)
-			w.Write(buf)
 		})
 
-		log.Fatal(http.ListenAndServe(":"+httpPort, nil))
+		log.Println("http server start at port:", *httpPort)
+		log.Fatal(http.ListenAndServe(":"+*httpPort, nil))
 	}()
 
 	// websocket server
 	go func() {
 		http.Handle("/peer", websocket.Handler(func(ws *websocket.Conn) {
-			nodes = append(nodes, ws.RemoteAddr())
+			nodes = append(nodes, ws.RemoteAddr().String())
+
 			for {
 				buf := make([]byte, 10240)
 				n, err := ws.Read(buf)
@@ -238,55 +177,68 @@ func main() {
 			}
 		}))
 
-		log.Fatal(http.ListenAndServe(":"+wsPort, nil))
+		log.Fatal(http.ListenAndServe(":"+*wsPort, nil))
 	}()
 
-	// client
-	r, err := http.Get(iPeer + "/nodes")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer r.Body.Close()
+	if *iPeer != "" {
+		// client
+		r, err := http.Get(*iPeer + "/nodes")
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer r.Body.Close()
 
-	err = json.NewDecoder(r.Body).Decode(nodes)
-	if err != nil {
-		log.Fatal(err)
-	}
+		var lal map[string]interface{}
 
-	r, err = http.Get(iPeer + "/blocks")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer r.Body.Close()
+		err = json.NewDecoder(r.Body).Decode(&lal)
+		if err != nil {
+			log.Panic(err)
+		}
 
-	err = json.NewDecoder(r.Body).Decode(blockchain)
-	if err != nil {
-		log.Fatal(err)
-	}
+		log.Println(lal)
 
-	for _, node := range nodes {
-		go func() {
-			ws, err := websocket.Dial("ws://"+node.String()+"/peer", "", "http://localhost")
-			if err != nil {
-				log.Fatal(err)
-			}
+		r, err = http.Get(*iPeer + "/blocks")
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer r.Body.Close()
 
-			for {
-				blk, ok := <-successMineNotify
-				if ok {
-					blkjson, err := json.Marshal(blk)
-					if err != nil {
-						log.Fatal(err)
-					}
+		err = json.NewDecoder(r.Body).Decode(&blockchain)
+		if err != nil {
+			log.Fatal(err)
+		}
 
-					_, err = ws.Write(blkjson)
-					if err != nil {
-						log.Fatal(err)
+		//nodes = append(nodes, ipper)
+
+		for _, node := range nodes {
+			go func() {
+				ws, err := websocket.Dial(node+"/peer", "", "http://localhost")
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				for {
+					blk, ok := <-mineNotify
+					if ok {
+						blkjson, err := json.Marshal(&blk)
+						if err != nil {
+							log.Fatal(err)
+						}
+
+						_, err = ws.Write(blkjson)
+						if err != nil {
+							log.Fatal(err)
+						}
+					} else {
+						log.Fatal("error blk notify")
 					}
 				}
-			}
-		}()
+			}()
+		}
 	}
 
+	done := make(chan os.Signal)
+	defer close(done)
+	signal.Notify(done, syscall.SIGINT, syscall.SIGTERM)
 	<-done
 }

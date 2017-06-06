@@ -13,5 +13,3 @@ ADD . /go/src/github.com/lavrs/blockchain
 RUN go get ./... \
     && go install \
     && go build
-
-ENTRYPOINT ["/go/bin/blockchain"]

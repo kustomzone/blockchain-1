@@ -20,7 +20,8 @@ var (
 	httpPort = flag.String("hport", "", "set http port")
 	wsPort   = flag.String("wsport", "", "set ws port")
 
-	records []*interface{}
+	records    []*interface{}
+	complexity = 1
 
 	mineNotify = make(chan *Block)
 
@@ -28,12 +29,15 @@ var (
 )
 
 type Block struct {
-	Index      int            `json:"index"`
-	Hash       string         `json:"hash"`
-	PrevHash   string         `json:"prev_hash"`
-	Timestamp  time.Time      `json:"timestamp"`
-	Complexity int            `json:"complexity"`
-	Facts      []*interface{} `json:"facts,omitempty"`
+	Index     int            `json:"index"`
+	Hash      string         `json:"hash"`
+	PrevHash  string         `json:"prev_hash"`
+	Timestamp time.Time      `json:"timestamp"`
+	Facts     []*interface{} `json:"facts,omitempty"`
+}
+
+type LAL struct {
+	nodes []*websocket.Conn
 }
 
 func main() {
@@ -65,12 +69,12 @@ func main() {
 		}
 		defer r.Body.Close()
 
-		var lal map[string][]*websocket.Conn
+		var lal LAL
 		err = json.NewDecoder(r.Body).Decode(&lal)
 		if err != nil {
 			log.Panic(err)
 		}
-		nodes = lal["nodes"]
+		nodes = lal.nodes
 
 		r, err = http.Get("http://" + *iPeer + "/blocks")
 		if err != nil {
@@ -116,10 +120,9 @@ func main() {
 		nodes = append(nodes, ws)
 	} else {
 		blockchain = []*Block{{
-			Index:      0,
-			PrevHash:   "0",
-			Timestamp:  time.Now(),
-			Complexity: 1,
+			Index:     0,
+			PrevHash:  "0",
+			Timestamp: time.Now(),
 		}}
 		blockchain[0].Hash = calcHash(blockchain[0].String())
 		block = createNextBlock()
@@ -193,21 +196,19 @@ func handleMine(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleNodes(w http.ResponseWriter, _ *http.Request) {
-	err := json.NewEncoder(w).Encode(&map[string]interface{}{
-		"nodes": nodes,
-	})
+	err := json.NewEncoder(w).Encode(LAL{nodes})
 	if err != nil {
 		log.Panic(err)
 	}
 }
 
 func mine(nonce string) {
-	if strings.Count(calcHash(nonce)[:block.Complexity], "0") == block.Complexity {
+	if strings.Count(calcHash(nonce)[:complexity], "0") == complexity {
 		if isValidBlock(block, latestBlock()) {
 			if time.Since(block.Timestamp) < time.Second*10 {
-				block.Complexity++
+				complexity++
 			} else {
-				block.Complexity--
+				complexity--
 			}
 			blockchain = append(blockchain, block)
 
@@ -237,11 +238,10 @@ func createNextBlock() *Block {
 		latestBlk = latestBlock()
 
 		blk = &Block{
-			Index:      latestBlk.Index + 1,
-			PrevHash:   latestBlk.Hash,
-			Timestamp:  time.Now(),
-			Facts:      records,
-			Complexity: latestBlk.Complexity,
+			Index:     latestBlk.Index + 1,
+			PrevHash:  latestBlk.Hash,
+			Timestamp: time.Now(),
+			Facts:     records,
 		}
 	)
 

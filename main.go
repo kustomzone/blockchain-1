@@ -20,8 +20,7 @@ var (
 	httpPort = flag.String("hport", "", "set http port")
 	wsPort   = flag.String("wsport", "", "set ws port")
 
-	records    []*interface{}
-	complexity = 1
+	records []*interface{}
 
 	mineNotify = make(chan *Block)
 
@@ -29,11 +28,12 @@ var (
 )
 
 type Block struct {
-	Index     int            `json:"index"`
-	Hash      string         `json:"hash"`
-	PrevHash  string         `json:"prev_hash"`
-	Timestamp time.Time      `json:"timestamp"`
-	Facts     []*interface{} `json:"facts,omitempty"`
+	Index      int            `json:"index"`
+	Hash       string         `json:"hash"`
+	PrevHash   string         `json:"prev_hash"`
+	Timestamp  time.Time      `json:"timestamp"`
+	Facts      []*interface{} `json:"facts,omitempty"`
+	Complexity int            `json:"complexity"`
 }
 
 type LAL struct {
@@ -203,13 +203,8 @@ func handleNodes(w http.ResponseWriter, _ *http.Request) {
 }
 
 func mine(nonce string) {
-	if strings.Count(calcHash(nonce)[:complexity], "0") == complexity {
+	if strings.Count(calcHash(nonce)[:block.Complexity], "0") == block.Complexity {
 		if isValidBlock(block, latestBlock()) {
-			if time.Since(block.Timestamp) < time.Second*10 {
-				complexity++
-			} else {
-				complexity--
-			}
 			blockchain = append(blockchain, block)
 
 			mineNotify <- block
@@ -222,7 +217,7 @@ func mine(nonce string) {
 
 func (b *Block) String() string {
 	return b.PrevHash + b.Timestamp.String() +
-		fmt.Sprint(b.Index, b.Facts)
+		fmt.Sprint(b.Index, b.Facts, b.Complexity)
 }
 
 func calcHash(str string) string {
@@ -244,6 +239,12 @@ func createNextBlock() *Block {
 			Facts:     records,
 		}
 	)
+
+	if time.Since(latestBlk.Timestamp) < time.Second*10 {
+		blk.Complexity = latestBlk.Complexity + 1
+	} else {
+		blk.Complexity = latestBlk.Complexity - 1
+	}
 
 	blk.Hash = calcHash(blk.String())
 	return blk

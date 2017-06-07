@@ -21,10 +21,10 @@ var (
 	blockchain []*Block
 	block      *Block
 
-	iPeer    = *flag.String("iperr", "localhost:0918", "init peer address")
-	httpPort = *flag.String("hport", "0918", "set http port")
-	wsPort   = *flag.String("wsport", "0819", "set ws port")
-	verbose  = *flag.Bool("v", false, "set verbose output")
+	iPeer    = flag.String("ipeer", "", "init peer address")
+	httpPort = flag.String("hport", "", "set http port")
+	wsPort   = flag.String("wsport", "", "set ws port")
+	verbose  = flag.Bool("v", false, "set verbose output")
 
 	records    []*interface{}
 	complexity = 1
@@ -46,7 +46,7 @@ type Block struct {
 func init() {
 	flag.Parse()
 
-	if iPeer != "" {
+	if *iPeer != "" {
 		nodeInit()
 	} else {
 		blockchain = []*Block{{
@@ -68,23 +68,23 @@ func main() {
 		http.HandleFunc("/mine", handleMine)
 		http.HandleFunc("/nodes", handleNodes)
 
-		log.Println("http server starting at port:", httpPort)
-		log.Panic(http.ListenAndServe(":"+httpPort, nil))
+		log.Println("http server starting at port:", *httpPort)
+		log.Panic(http.ListenAndServe(":"+*httpPort, nil))
 	}()
 
 	// websocket server
 	go func() {
 		http.Handle("/peer", websocket.Handler(handlePeer))
 
-		log.Println("ws server starting at port:", wsPort)
-		log.Panic(http.ListenAndServe(":"+wsPort, nil))
+		log.Println("ws server starting at port:", *wsPort)
+		log.Panic(http.ListenAndServe(":"+*wsPort, nil))
 	}()
 
 	notify()
 }
 
 func nodeInit() {
-	r, err := http.Get("http://" + iPeer + "/nodes")
+	r, err := http.Get("http://" + *iPeer + "/nodes")
 	if err != nil {
 		log.Panic(err)
 	}
@@ -97,7 +97,7 @@ func nodeInit() {
 	}
 	nodes = t.nodes
 
-	r, err = http.Get("http://" + iPeer + "/blocks")
+	r, err = http.Get("http://" + *iPeer + "/blocks")
 	if err != nil {
 		log.Panic(err)
 	}
@@ -119,7 +119,7 @@ func nodeInit() {
 		nodes = append(nodes, ws)
 	}
 
-	ws, err := websocket.Dial("ws://"+iPeer+"/peer", "", "http://localhost")
+	ws, err := websocket.Dial("ws://"+*iPeer+"/peer", "", "http://localhost")
 	if err != nil {
 		log.Panic(err)
 	}
@@ -191,7 +191,7 @@ func handlePeer(ws *websocket.Conn) {
 		nodes = append(nodes, ws)
 	}
 
-	go read(ws)
+	read(ws)
 }
 
 func handleBlock(w http.ResponseWriter, r *http.Request) {
@@ -288,7 +288,7 @@ func isValidBlock(nBlock, pBlock *Block) bool {
 }
 
 func info(info ...interface{}) {
-	if verbose {
+	if *verbose {
 		log.Println(info)
 	}
 }

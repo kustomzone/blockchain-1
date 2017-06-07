@@ -12,18 +12,25 @@ import (
 	"time"
 )
 
+const (
+	BLOCK  = "BLOCK"
+	RECORD = "RECORD"
+)
+
 var (
 	blockchain []*Block
 	block      *Block
 
-	iPeer    = flag.String("iperr", "", "init peer address")
-	httpPort = flag.String("hport", "", "set http port")
-	wsPort   = flag.String("wsport", "", "set ws port")
+	iPeer    = *flag.String("iperr", "localhost:0918", "init peer address")
+	httpPort = *flag.String("hport", "0918", "set http port")
+	wsPort   = *flag.String("wsport", "0819", "set ws port")
+	verbose  = *flag.Bool("v", false, "set verbose output")
 
 	records    []*interface{}
 	complexity = 1
 
-	mineNotify = make(chan *Block)
+	mineNotify   = make(chan *Block)
+	recordNotify = make(chan interface{})
 
 	nodes []*websocket.Conn
 )
@@ -36,84 +43,11 @@ type Block struct {
 	Facts     []*interface{} `json:"facts,omitempty"`
 }
 
-func main() {
+func init() {
 	flag.Parse()
 
-	// http server
-	go func() {
-		http.HandleFunc("/blocks", handleBlock)
-		http.HandleFunc("/fact", handleFact)
-		http.HandleFunc("/mine", handleMine)
-		http.HandleFunc("/nodes", handleNodes)
-
-		log.Println("http server starting at port:", *httpPort)
-		log.Panic(http.ListenAndServe(":"+*httpPort, nil))
-	}()
-
-	// websocket server
-	go func() {
-		http.Handle("/peer", websocket.Handler(handlePeer))
-
-		log.Println("ws server starting at port:", *wsPort)
-		log.Panic(http.ListenAndServe(":"+*wsPort, nil))
-	}()
-
-	if *iPeer != "" {
-		r, err := http.Get("http://" + *iPeer + "/nodes")
-		if err != nil {
-			log.Panic(err)
-		}
-		defer r.Body.Close()
-
-		var lal map[string][]*websocket.Conn
-		err = json.NewDecoder(r.Body).Decode(&lal)
-		if err != nil {
-			log.Panic(err)
-		}
-		nodes = lal["nodes"]
-
-		r, err = http.Get("http://" + *iPeer + "/blocks")
-		if err != nil {
-			log.Panic(err)
-		}
-		defer r.Body.Close()
-
-		err = json.NewDecoder(r.Body).Decode(&blockchain)
-		if err != nil {
-			log.Panic(err)
-		}
-		block = createNextBlock()
-
-		for _, node := range nodes {
-			log.Println("lalasdasdsa")
-			ws, err := websocket.Dial(node.RemoteAddr().String(), "", "http://localhost")
-			if err != nil {
-				log.Panic(err)
-			}
-
-			nodes = append(nodes, ws)
-		}
-
-		ws, err := websocket.Dial("ws://"+*iPeer+"/peer", "", "http://localhost")
-		if err != nil {
-			log.Panic(err)
-		}
-
-		go func() {
-			for {
-				var blk *Block
-				err := websocket.JSON.Receive(ws, &blk)
-				if err != nil {
-					log.Panic(err)
-				}
-				log.Println(blk)
-				if isValidBlock(blk, latestBlock()) {
-					blockchain = append(blockchain, blk)
-				}
-			}
-		}()
-		log.Println("here", ws.RemoteAddr())
-		nodes = append(nodes, ws)
+	if iPeer != "" {
+		nodeInit()
 	} else {
 		blockchain = []*Block{{
 			Index:     0,
@@ -121,17 +55,122 @@ func main() {
 			Timestamp: time.Now(),
 		}}
 		blockchain[0].Hash = calcHash(blockchain[0].String())
+
 		block = createNextBlock()
+	}
+}
+
+func main() {
+	// http server
+	go func() {
+		http.HandleFunc("/blocks", handleBlock)
+		http.HandleFunc("/fact", handleFact)
+		http.HandleFunc("/mine", handleMine)
+		http.HandleFunc("/nodes", handleNodes)
+
+		log.Println("http server starting at port:", httpPort)
+		log.Panic(http.ListenAndServe(":"+httpPort, nil))
+	}()
+
+	// websocket server
+	go func() {
+		http.Handle("/peer", websocket.Handler(handlePeer))
+
+		log.Println("ws server starting at port:", wsPort)
+		log.Panic(http.ListenAndServe(":"+wsPort, nil))
+	}()
+
+	notify()
+}
+
+func nodeInit() {
+	r, err := http.Get("http://" + iPeer + "/nodes")
+	if err != nil {
+		log.Panic(err)
+	}
+	defer r.Body.Close()
+
+	var t struct{ nodes []*websocket.Conn }
+	err = json.NewDecoder(r.Body).Decode(&t)
+	if err != nil {
+		log.Panic(err)
+	}
+	nodes = t.nodes
+
+	r, err = http.Get("http://" + iPeer + "/blocks")
+	if err != nil {
+		log.Panic(err)
+	}
+	defer r.Body.Close()
+
+	err = json.NewDecoder(r.Body).Decode(&blockchain)
+	if err != nil {
+		log.Panic(err)
+	}
+	block = createNextBlock()
+
+	for _, node := range nodes {
+		ws, err := websocket.Dial(node.RemoteAddr().String(), "", "http://localhost")
+		if err != nil {
+			log.Panic(err)
+		}
+
+		go read(ws)
+		nodes = append(nodes, ws)
+	}
+
+	ws, err := websocket.Dial("ws://"+iPeer+"/peer", "", "http://localhost")
+	if err != nil {
+		log.Panic(err)
+	}
+
+	go read(ws)
+	nodes = append(nodes, ws)
+}
+
+func notify() {
+	for {
+		select {
+		case blk, ok := <-mineNotify:
+			if ok {
+				for _, node := range nodes {
+					err := websocket.JSON.Send(node, blk)
+					if err != nil {
+						log.Panic(err)
+					}
+				}
+			}
+		case pull, ok := <-recordNotify:
+			if ok {
+				for _, node := range nodes {
+					err := websocket.JSON.Send(node, pull)
+					if err != nil {
+						log.Panic(err)
+					}
+				}
+			}
+		}
+	}
+}
+
+func read(ws *websocket.Conn) {
+	var t struct {
+		typ  string
+		data interface{}
 	}
 
 	for {
-		if blk, ok := <-mineNotify; ok {
-			for _, node := range nodes {
-				log.Println("sd")
-				err := websocket.JSON.Send(node, blk)
-				if err != nil {
-					log.Panic(err)
-				}
+		err := websocket.JSON.Receive(ws, &t)
+		if err != nil {
+			log.Panic(err)
+		}
+		switch t.typ {
+		case RECORD:
+			records = append(records, &t.data)
+			break
+		case BLOCK:
+			if isValidBlock(t.data.(*Block), latestBlock()) {
+				blockchain = append(blockchain, t.data.(*Block))
 			}
 		}
 	}
@@ -152,17 +191,7 @@ func handlePeer(ws *websocket.Conn) {
 		nodes = append(nodes, ws)
 	}
 
-	for {
-		var blk *Block
-		err := websocket.JSON.Receive(ws, &blk)
-		if err != nil {
-			log.Panic(err)
-		}
-		log.Println(blk)
-		if isValidBlock(blk, latestBlock()) {
-			blockchain = append(blockchain, blk)
-		}
-	}
+	go read(ws)
 }
 
 func handleBlock(w http.ResponseWriter, r *http.Request) {
@@ -182,6 +211,7 @@ func handleFact(_ http.ResponseWriter, r *http.Request) {
 			log.Fatal(err)
 		}
 
+		recordNotify <- fact
 		records = append(records, &fact)
 	}
 }
@@ -255,4 +285,10 @@ func isValidBlock(nBlock, pBlock *Block) bool {
 		return false
 	}
 	return true
+}
+
+func info(info ...interface{}) {
+	if verbose {
+		log.Println(info)
+	}
 }

@@ -24,8 +24,13 @@ var (
 
 	mineNotify = make(chan *Block)
 
-	nodes []*websocket.Conn
+	nodes = &Nodes{}
 )
+
+type Nodes struct {
+	Conns []*websocket.Conn `json:"conns"`
+	Addrs []string          `json:"addrs"`
+}
 
 type Block struct {
 	Index      int            `json:"index"`
@@ -36,8 +41,8 @@ type Block struct {
 	Complexity int            `json:"complexity"`
 }
 
-type LAL struct {
-	nodes []*websocket.Conn
+type API struct {
+	Nodes []string `json:"nodes"`
 }
 
 func main() {
@@ -69,12 +74,12 @@ func main() {
 		}
 		defer r.Body.Close()
 
-		var lal LAL
-		err = json.NewDecoder(r.Body).Decode(&lal)
+		var t *API
+		err = json.NewDecoder(r.Body).Decode(&t)
 		if err != nil {
 			log.Panic(err)
 		}
-		nodes = lal.nodes
+		nodes.Addrs = t.Nodes
 
 		r, err = http.Get("http://" + *iPeer + "/blocks")
 		if err != nil {
@@ -88,17 +93,29 @@ func main() {
 		}
 		block = createNextBlock()
 
-		for _, node := range nodes {
-			log.Println("lalasdasdsa")
-			ws, err := websocket.Dial(node.RemoteAddr().String(), "", "http://localhost")
+		for _, addr := range nodes.Addrs {
+			ws, err := websocket.Dial(addr, "", "ws://localhost:"+*wsPort+"/peer")
 			if err != nil {
 				log.Panic(err)
 			}
 
-			nodes = append(nodes, ws)
+			go func() {
+				for {
+					var blk *Block
+					err := websocket.JSON.Receive(ws, &blk)
+					if err != nil {
+						log.Panic(err)
+					}
+					log.Println(blk)
+					if isValidBlock(blk, latestBlock()) {
+						blockchain = append(blockchain, blk)
+					}
+				}
+			}()
+			nodes.Conns = append(nodes.Conns, ws)
 		}
 
-		ws, err := websocket.Dial("ws://"+*iPeer+"/peer", "", "http://localhost")
+		ws, err := websocket.Dial("ws://"+*iPeer+"/peer", "", "ws://localhost:"+*wsPort+"/peer")
 		if err != nil {
 			log.Panic(err)
 		}
@@ -116,8 +133,8 @@ func main() {
 				}
 			}
 		}()
-		log.Println("here", ws.RemoteAddr())
-		nodes = append(nodes, ws)
+		nodes.Addrs = append(nodes.Addrs, ws.RemoteAddr().String())
+		nodes.Conns = append(nodes.Conns, ws)
 	} else {
 		blockchain = []*Block{{
 			Index:     0,
@@ -130,7 +147,7 @@ func main() {
 
 	for {
 		if blk, ok := <-mineNotify; ok {
-			for _, node := range nodes {
+			for _, node := range nodes.Conns {
 				log.Println("sd")
 				err := websocket.JSON.Send(node, blk)
 				if err != nil {
@@ -144,16 +161,18 @@ func main() {
 func handlePeer(ws *websocket.Conn) {
 	var search bool
 
-	if len(nodes) == 0 {
-		nodes = append(nodes, ws)
+	if len(nodes.Addrs) == 0 {
+		nodes.Addrs = append(nodes.Addrs, ws.RemoteAddr().String())
+		nodes.Conns = append(nodes.Conns, ws)
 	}
-	for _, node := range nodes {
-		if node == ws {
+	for _, node := range nodes.Addrs {
+		if node == ws.RemoteAddr().String() {
 			search = true
 		}
 	}
 	if !search {
-		nodes = append(nodes, ws)
+		nodes.Addrs = append(nodes.Addrs, ws.RemoteAddr().String())
+		nodes.Conns = append(nodes.Conns, ws)
 	}
 
 	for {
@@ -196,7 +215,7 @@ func handleMine(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleNodes(w http.ResponseWriter, _ *http.Request) {
-	err := json.NewEncoder(w).Encode(LAL{nodes})
+	err := json.NewEncoder(w).Encode(API{Nodes: nodes.Addrs})
 	if err != nil {
 		log.Panic(err)
 	}

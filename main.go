@@ -6,10 +6,14 @@ import (
 	"flag"
 	"fmt"
 	"golang.org/x/net/websocket"
-	"log"
+	l "log"
 	"net/http"
 	"strings"
 	"time"
+)
+
+const (
+	BLOCK = iota
 )
 
 var (
@@ -19,6 +23,7 @@ var (
 	iPeer    = flag.String("ipeer", "", "init peer address")
 	httpPort = flag.String("hport", "", "set http port")
 	wsPort   = flag.String("wsport", "", "set ws port")
+	verbose  = flag.Bool("v", false, "enable verbose output")
 
 	records []*interface{}
 
@@ -42,7 +47,9 @@ type Block struct {
 }
 
 type API struct {
+	Type  int
 	Nodes []string `json:"nodes"`
+	Block *Block
 }
 
 func main() {
@@ -55,84 +62,60 @@ func main() {
 		http.HandleFunc("/mine", handleMine)
 		http.HandleFunc("/nodes", handleNodes)
 
-		log.Println("http server starting at port:", *httpPort)
-		log.Panic(http.ListenAndServe(":"+*httpPort, nil))
+		log("http server starting at port:", *httpPort)
+		panic(http.ListenAndServe(":"+*httpPort, nil))
 	}()
 
 	// websocket server
 	go func() {
 		http.Handle("/peer", websocket.Handler(handlePeer))
 
-		log.Println("ws server starting at port:", *wsPort)
-		log.Panic(http.ListenAndServe(":"+*wsPort, nil))
+		log("ws server starting at port:", *wsPort)
+		panic(http.ListenAndServe(":"+*wsPort, nil))
 	}()
 
 	if *iPeer != "" {
 		r, err := http.Get("http://" + *iPeer + "/nodes")
 		if err != nil {
-			log.Panic(err)
+			panic(err)
 		}
 		defer r.Body.Close()
 
 		var t *API
 		err = json.NewDecoder(r.Body).Decode(&t)
 		if err != nil {
-			log.Panic(err)
+			panic(err)
 		}
 		nodes.Addrs = t.Nodes
 
 		r, err = http.Get("http://" + *iPeer + "/blocks")
 		if err != nil {
-			log.Panic(err)
+			panic(err)
 		}
 		defer r.Body.Close()
 
 		err = json.NewDecoder(r.Body).Decode(&blockchain)
 		if err != nil {
-			log.Panic(err)
+			panic(err)
 		}
 		block = createNextBlock()
 
 		for _, addr := range nodes.Addrs {
 			ws, err := websocket.Dial(addr, "", "ws://localhost:"+*wsPort+"/peer")
 			if err != nil {
-				log.Panic(err)
+				panic(err)
 			}
 
-			go func() {
-				for {
-					var blk *Block
-					err := websocket.JSON.Receive(ws, &blk)
-					if err != nil {
-						log.Panic(err)
-					}
-					log.Println(blk)
-					if isValidBlock(blk, latestBlock()) {
-						blockchain = append(blockchain, blk)
-					}
-				}
-			}()
+			go read(ws)
 			nodes.Conns = append(nodes.Conns, ws)
 		}
 
 		ws, err := websocket.Dial("ws://"+*iPeer+"/peer", "", "ws://localhost:"+*wsPort+"/peer")
 		if err != nil {
-			log.Panic(err)
+			panic(err)
 		}
 
-		go func() {
-			for {
-				var blk *Block
-				err := websocket.JSON.Receive(ws, &blk)
-				if err != nil {
-					log.Panic(err)
-				}
-				log.Println(blk)
-				if isValidBlock(blk, latestBlock()) {
-					blockchain = append(blockchain, blk)
-				}
-			}
-		}()
+		go read(ws)
 		nodes.Addrs = append(nodes.Addrs, ws.RemoteAddr().String())
 		nodes.Conns = append(nodes.Conns, ws)
 	} else {
@@ -145,15 +128,38 @@ func main() {
 		block = createNextBlock()
 	}
 
+	notify()
+}
+
+func notify() {
 	for {
-		if blk, ok := <-mineNotify; ok {
-			for _, node := range nodes.Conns {
-				log.Println("sd")
-				err := websocket.JSON.Send(node, blk)
-				if err != nil {
-					log.Panic(err)
+		select {
+		case blk, ok := <-mineNotify:
+			if ok {
+				for _, node := range nodes.Conns {
+					err := websocket.JSON.Send(node, API{
+						Type: BLOCK, Block: blk,
+					})
+					if err != nil {
+						panic(err)
+					}
 				}
 			}
+		}
+	}
+}
+
+func read(ws *websocket.Conn) {
+	for {
+		t := &API{}
+
+		err := websocket.JSON.Receive(ws, t)
+		if err != nil {
+			panic(err)
+		}
+
+		if isValidBlock(t.Block, latestBlock()) {
+			blockchain = append(blockchain, t.Block)
 		}
 	}
 }
@@ -175,25 +181,14 @@ func handlePeer(ws *websocket.Conn) {
 		nodes.Conns = append(nodes.Conns, ws)
 	}
 
-	for {
-		var blk *Block
-		err := websocket.JSON.Receive(ws, &blk)
-		if err != nil {
-			log.Panic(err)
-		}
-		log.Println(blk)
-		if isValidBlock(blk, latestBlock()) {
-			blockchain = append(blockchain, blk)
-		}
-	}
+	read(ws)
 }
 
 func handleBlock(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	err := json.NewEncoder(w).Encode(blockchain)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		log.Fatal(err)
+		panic(err)
 	}
 }
 
@@ -202,7 +197,7 @@ func handleFact(_ http.ResponseWriter, r *http.Request) {
 		var fact interface{}
 		err := json.NewDecoder(r.Body).Decode(&fact)
 		if err != nil {
-			log.Fatal(err)
+			panic(err)
 		}
 
 		records = append(records, &fact)
@@ -217,7 +212,7 @@ func handleMine(w http.ResponseWriter, r *http.Request) {
 func handleNodes(w http.ResponseWriter, _ *http.Request) {
 	err := json.NewEncoder(w).Encode(API{Nodes: nodes.Addrs})
 	if err != nil {
-		log.Panic(err)
+		panic(err)
 	}
 }
 
@@ -277,4 +272,10 @@ func isValidBlock(nBlock, pBlock *Block) bool {
 		return false
 	}
 	return true
+}
+
+func log(info ...interface{}) {
+	if *verbose {
+		l.Println(info)
+	}
 }

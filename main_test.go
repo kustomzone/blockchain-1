@@ -14,17 +14,9 @@ func Test(t *testing.T) {
 		clients = 4
 		done    = make(chan bool, clients)
 
-		json0 = []byte(`{"data":"0."}`)
-		json1 = []byte(`{"data":"1."}`)
-		json2 = []byte(`{"data":"2."}`)
-		json3 = []byte(`{"data":"3."}`)
+		jd = []byte(`{"data":"."}`)
 	)
 	defer close(done)
-
-	http.Post("http://localhost:1000/fact", "", bytes.NewBuffer(json0))
-	http.Post("http://localhost:1001/fact", "", bytes.NewBuffer(json1))
-	http.Post("http://localhost:1002/fact", "", bytes.NewBuffer(json2))
-	http.Post("http://localhost:1003/fact", "", bytes.NewBuffer(json3))
 
 	send := func(clientPort int) {
 		for i := 0; i < mining; i++ {
@@ -34,6 +26,8 @@ func Test(t *testing.T) {
 	}
 
 	for i := 0; i < clients; i++ {
+		http.Post("http://localhost:100"+strconv.Itoa(i)+"/fact", "", bytes.NewBuffer(jd))
+
 		go send(i)
 	}
 

@@ -25,7 +25,7 @@ type Nodes struct {
 
 type Fact struct {
 	Id   string
-	Fact *interface{}
+	Fact *interface{} `json:"fact,omitempty"`
 }
 
 type Block struct {
@@ -38,8 +38,8 @@ type Block struct {
 }
 
 type BlockAPI struct {
-	BlkS *Block `json:"blk_s"`
-	BlkN *Block `json:"blk_n"`
+	BlkS *Block `json:"blk_s,omitempty"`
+	BlkN *Block `json:"blk_n,omitempty"`
 }
 
 type API struct {
@@ -48,7 +48,8 @@ type API struct {
 	Blocks     *BlockAPI `json:"blocks,omitempty"`
 	Complexity int       `json:"complexity,omitempty"`
 	Facts      []*Fact   `json:"facts,omitempty"`
-	Fact       *Fact     `json:"fact, omitempty"`
+	Fact       *Fact     `json:"fact,omitempty"`
+	Blockchain []*Block  `json:"blockchain,omitempty"`
 }
 
 var (
@@ -102,11 +103,12 @@ func nodeInit() {
 	}
 	defer r.Body.Close()
 
-	err = json.NewDecoder(r.Body).Decode(&blockchain)
+	err = json.NewDecoder(r.Body).Decode(t)
 	if err != nil {
 		panic(err)
 	}
-	block = createNextBlock()
+	block = t.Blocks.BlkN
+	blockchain = t.Blockchain
 
 	origin := "ws://localhost:" + *wsPort + "/peer"
 	for i, addr := range nodes.Addrs {
@@ -185,6 +187,7 @@ func read(ws *websocket.Conn) {
 			for _, fact := range t.Facts {
 				for i, record := range records {
 					if fact.Id == record.Id {
+						log(true)
 						records = append(records[:i], records[i+1:]...)
 					}
 				}
@@ -217,7 +220,12 @@ func handlePeer(ws *websocket.Conn) {
 
 func handleBlock(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	err := json.NewEncoder(w).Encode(blockchain)
+	err := json.NewEncoder(w).Encode(API{
+		Blockchain: blockchain,
+		Blocks: &BlockAPI{
+			BlkN: block,
+		},
+	})
 	if err != nil {
 		panic(err)
 	}
@@ -272,9 +280,9 @@ func handleNodes(w http.ResponseWriter, _ *http.Request) {
 func mine(nonce string) {
 	if strings.Count(calcHash(block.Hash + nonce)[:block.Complexity], "0") == block.Complexity {
 		if isValidBlock(block, latestBlock()) {
-			log(block.Hash)
 			blockchain = append(blockchain, block)
 			mineNotify <- &BlockAPI{BlkS: block, BlkN: createNextBlock()}
+			log(block.String())
 		}
 	}
 }

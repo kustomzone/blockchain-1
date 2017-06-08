@@ -4,17 +4,21 @@ services:
     image: blkchn
     command: blockchain -v -hport 1000 -wsport 2000
     ports:
-     - '1000:1000'
-     - '2000:2000'
+      - '1000:1000'
+      - '2000:2000'
   cli2:
-      image: blkchn
-      command: blockchain -v -ipeer localhost:1000 -hport 1001 -wsport 2001
-      ports:
-       - '1001:1001'
-       - '2001:2001'
+    image: blkchn
+    command: blockchain -v -ipeer cli1:1000 -hport 1001 -wsport 2001
+    ports:
+      - '1001:1001'
+      - '2001:2001'
+    depends_on:
+      - cli1
   cli3:
-      image: blkchn
-      command: blockchain -v -ipeer localhost:1001 -hport 1002 -wsport 2002
-      ports:
-       - '1002:1002'
-       - '2002:2002'
+    image: blkchn
+    command: blockchain -v -ipeer cli2:1001 -hport 1002 -wsport 2002
+    ports:
+      - '1002:1002'
+      - '2002:2002'
+    depends_on:
+      - cli2

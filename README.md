@@ -1,2 +1,2 @@
 # Simple blockchain
-###### In progress
+[Blockchain. How it works?](BLOCKCHAIN.md)

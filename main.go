@@ -272,9 +272,9 @@ func handleNodes(w http.ResponseWriter, _ *http.Request) {
 func mine(nonce string) {
 	if strings.Count(calcHash(block.Hash + nonce)[:block.Complexity], "0") == block.Complexity {
 		if isValidBlock(block, latestBlock()) {
+			log(block.Hash)
 			blockchain = append(blockchain, block)
 			mineNotify <- &BlockAPI{BlkS: block, BlkN: createNextBlock()}
-			records = nil
 		}
 	}
 }
@@ -282,7 +282,6 @@ func mine(nonce string) {
 func (b *Block) String() string {
 	var facts string
 	for _, fact := range b.Facts {
-		log(fact.Id)
 		facts += fact.Id
 		facts += fmt.Sprint(*fact.Fact)
 	}
@@ -311,14 +310,14 @@ func createNextBlock() *Block {
 		}
 	)
 
+	records = nil
+
 	if time.Since(latestBlk.Timestamp) < time.Second*10 {
 		blk.Complexity = latestBlk.Complexity + 1
 	} else {
 		blk.Complexity = latestBlk.Complexity - 1
 	}
 
-	log(blk.Index)
-	log(latestBlk.Index)
 	blk.Hash = calcHash(blk.String())
 	return blk
 }
@@ -338,7 +337,6 @@ func log(info ...interface{}) {
 		l.Println(info)
 	}
 }
-
 
 func main() {
 	// http server

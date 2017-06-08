@@ -14,35 +14,49 @@ import (
 )
 
 const (
+	// const for choose information type
+	// when send valid / new block or fact to nodes
 	BLOCK = iota
 	FACT
 )
 
+// Nodes type for store current connections
 type Nodes struct {
 	Conns []*websocket.Conn `json:"conns"`
 	Addrs []string          `json:"addrs"`
 }
 
+// Fact type for fact
 type Fact struct {
-	Id   string
+	// has unique id for identify
+	Id   string       `json:"id"`
 	Fact *interface{} `json:"fact,omitempty"`
 }
 
+// Block type for store block
 type Block struct {
-	Index      int       `json:"index"`
-	Complexity int       `json:"complexity"`
-	Hash       string    `json:"hash"`
-	PrevHash   string    `json:"prev_hash"`
-	Timestamp  time.Time `json:"timestamp"`
-	Facts      []*Fact   `json:"facts,omitempty"`
+	Index int `json:"index"`
+	// calculated from block info
+	Hash string `json:"hash"`
+	// point to previous block hash
+	PrevHash  string    `json:"prev_hash"`
+	Timestamp time.Time `json:"timestamp"`
+	Facts     []*Fact   `json:"facts,omitempty"`
+	// mining complexity
+	Complexity int `json:"complexity"`
 }
 
+// BlockAPI type for send valid block / new mining block to other nodes
 type BlockAPI struct {
-	BlkS *Block `json:"blk_s,omitempty"`
-	BlkN *Block `json:"blk_n,omitempty"`
+	ValidBlock  *Block `json:"valid_block"`
+	MiningBlock *Block `json:"mining_block,omitempty"`
 }
 
+// API type for communicate with other nodes or clients
 type API struct {
+	// information type
+	// used only when send valid / new block or new fact
+	// to other nodes
 	Type       int       `json:"type,omitempty"`
 	Complexity int       `json:"complexity,omitempty"`
 	Error      string    `json:"error,omitempty"`

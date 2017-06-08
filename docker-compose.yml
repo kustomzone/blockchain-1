@@ -2,13 +2,13 @@ version: '3'
 services:
   nodeRoot:
     image: blkchn
-    command: blockchain -v -hport 1000 -wsport 2000
+    command: blkchn -v -hport 1000 -wsport 2000
     ports:
       - '1000:1000'
       - '2000:2000'
   node1:
     image: blkchn
-    command: blockchain -v -ipeer nodeRoot:1000 -hport 1001 -wsport 2001
+    command: blkchn -v -ipeer nodeRoot:1000 -hport 1001 -wsport 2001
     ports:
       - '1001:1001'
       - '2001:2001'
@@ -16,7 +16,7 @@ services:
       - nodeRoot
   node2:
     image: blkchn
-    command: blockchain -v -ipeer node1:1001 -hport 1002 -wsport 2002
+    command: blkchn -v -ipeer node1:1001 -hport 1002 -wsport 2002
     ports:
       - '1002:1002'
       - '2002:2002'

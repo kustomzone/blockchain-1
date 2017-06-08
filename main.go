@@ -6,7 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"golang.org/x/net/websocket"
-	l "log"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -30,10 +30,10 @@ type Fact struct {
 
 type Block struct {
 	Index      int       `json:"index"`
+	Complexity int       `json:"complexity"`
 	Hash       string    `json:"hash"`
 	PrevHash   string    `json:"prev_hash"`
 	Timestamp  time.Time `json:"timestamp"`
-	Complexity int       `json:"complexity"`
 	Facts      []*Fact   `json:"facts,omitempty"`
 }
 
@@ -44,46 +44,49 @@ type BlockAPI struct {
 
 type API struct {
 	Type       int       `json:"type,omitempty"`
-	Nodes      []string  `json:"nodes,omitempty"`
-	Blocks     *BlockAPI `json:"blocks,omitempty"`
 	Complexity int       `json:"complexity,omitempty"`
-	Facts      []*Fact   `json:"facts,omitempty"`
+	Error      string    `json:"error,omitempty"`
 	Fact       *Fact     `json:"fact,omitempty"`
+	Blocks     *BlockAPI `json:"blocks,omitempty"`
+	Nodes      []string  `json:"nodes,omitempty"`
+	Facts      []*Fact   `json:"facts,omitempty"`
 	Blockchain []*Block  `json:"blockchain,omitempty"`
 }
 
 var (
 	blockchain []*Block
 	block      *Block
+	facts      []*Fact
+	nodes      = &Nodes{}
 
 	iPeer    = flag.String("ipeer", "", "init peer address")
 	httpPort = flag.String("hport", "", "set http port")
 	wsPort   = flag.String("wsport", "", "set ws port")
 	verbose  = flag.Bool("v", false, "enable verbose output")
 
-	facts []*Fact
-
 	mineNotify = make(chan *BlockAPI)
 	factNotify = make(chan *Fact)
-
-	nodes = &Nodes{}
 )
 
 func init() {
 	flag.Parse()
 
 	if *iPeer != "" {
-		nodeInit()
+		initNode()
 	} else {
-		blockchain = []*Block{{
-			Timestamp: time.Now(),
-		}}
-		blockchain[0].Hash = calcHash(blockchain[0].String())
-		block = createNextBlock()
+		initRootNode()
 	}
 }
 
-func nodeInit() {
+func initRootNode() {
+	blockchain = []*Block{{
+		Timestamp: time.Now(),
+	}}
+	blockchain[0].Hash = calcHash(blockchain[0].String())
+	block = createNextBlock()
+}
+
+func initNode() {
 	r, err := http.Get("http://" + *iPeer + "/nodes")
 	if err != nil {
 		panic(err)
@@ -103,7 +106,7 @@ func nodeInit() {
 	}
 	defer r.Body.Close()
 
-	err = json.NewDecoder(r.Body).Decode(t)
+	err = json.NewDecoder(r.Body).Decode(&t)
 	if err != nil {
 		panic(err)
 	}
@@ -170,7 +173,7 @@ func notify() {
 }
 
 func removePeer(ws *websocket.Conn) {
-	log("client disconnect", ws.RemoteAddr())
+	info("client disconnect", ws.RemoteAddr())
 
 	for i, addr := range nodes.Addrs {
 		if ws.RemoteAddr().String() == addr {
@@ -208,7 +211,7 @@ func read(ws *websocket.Conn) {
 
 			break
 		case FACT:
-			log("new fact from", ws.RemoteAddr(), *t.Fact.Fact)
+			info("new fact from", ws.RemoteAddr(), *t.Fact.Fact)
 			facts = append(facts, t.Fact)
 		}
 	}
@@ -229,7 +232,7 @@ func handlePeer(ws *websocket.Conn) {
 	read(ws)
 }
 
-func handleBlock(w http.ResponseWriter, r *http.Request) {
+func handleBlock(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	err := json.NewEncoder(w).Encode(API{
 		Blockchain: blockchain,
@@ -245,13 +248,17 @@ func handleBlock(w http.ResponseWriter, r *http.Request) {
 func handleFact(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		id, err := strconv.Atoi(r.URL.Query().Get("id"))
-		if err != nil {
-			panic(err)
-		}
+		w.Header().Set("Content-Type", "application/json")
 
-		if id < 0 || id > len(blockchain)-1 {
-			// send that id is incorrect
+		id, err := strconv.Atoi(r.URL.Query().Get("id"))
+		if err != nil || id < 0 || id > len(blockchain)-1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			err = json.NewEncoder(w).Encode(API{
+				Error: "invalid id",
+			})
+			if err != nil {
+				panic(err)
+			}
 			return
 		}
 
@@ -261,12 +268,21 @@ func handleFact(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			panic(err)
 		}
+
 		break
 	case http.MethodPost:
 		var fact interface{}
 		err := json.NewDecoder(r.Body).Decode(&fact)
 		if err != nil {
-			panic(err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			err = json.NewEncoder(w).Encode(API{
+				Error: "invalid incoming data",
+			})
+			if err != nil {
+				panic(err)
+			}
+			return
 		}
 
 		t := &Fact{Id: time.Now().String(), Fact: &fact}
@@ -276,7 +292,7 @@ func handleFact(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleMine(w http.ResponseWriter, r *http.Request) {
-	mine(r.URL.Query().Get("nonce"))
+	go mine(r.URL.Query().Get("nonce"))
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -293,7 +309,7 @@ func mine(nonce string) {
 		if isValidBlock(block, latestBlock()) {
 			blockchain = append(blockchain, block)
 			mineNotify <- &BlockAPI{BlkS: block, BlkN: createNextBlock()}
-			log(block.String())
+			info(block.String())
 		}
 	}
 }
@@ -309,8 +325,8 @@ func (b *Block) String() string {
 		fmt.Sprint(b.Index, facts, b.Complexity)
 }
 
-func calcHash(data string) string {
-	return fmt.Sprintf("%x", sha256.Sum256([]byte(data)))
+func calcHash(s string) string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(s)))
 }
 
 func latestBlock() *Block {
@@ -351,29 +367,27 @@ func isValidBlock(nBlock, pBlock *Block) bool {
 	return true
 }
 
-func log(info ...interface{}) {
+func info(info ...interface{}) {
 	if *verbose {
-		l.Println(info)
+		log.Println(info)
 	}
 }
 
 func main() {
-	// http server
 	go func() {
 		http.HandleFunc("/blocks", handleBlock)
 		http.HandleFunc("/fact", handleFact)
 		http.HandleFunc("/mine", handleMine)
 		http.HandleFunc("/nodes", handleNodes)
 
-		log("http server starting at port:", *httpPort)
+		info("http server starting at port:", *httpPort)
 		panic(http.ListenAndServe(":"+*httpPort, nil))
 	}()
 
-	// websocket server
 	go func() {
 		http.Handle("/peer", websocket.Handler(handlePeer))
 
-		log("ws server starting at port:", *wsPort)
+		info("ws server starting at port:", *wsPort)
 		panic(http.ListenAndServe(":"+*wsPort, nil))
 	}()
 

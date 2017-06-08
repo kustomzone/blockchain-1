@@ -61,7 +61,7 @@ var (
 	wsPort   = flag.String("wsport", "", "set ws port")
 	verbose  = flag.Bool("v", false, "enable verbose output")
 
-	records []*Fact
+	facts []*Fact
 
 	mineNotify = make(chan *BlockAPI)
 	factNotify = make(chan *Fact)
@@ -184,21 +184,24 @@ func read(ws *websocket.Conn) {
 				blockchain = append(blockchain, t.Blocks.BlkS)
 			}
 
-			for _, fact := range t.Facts {
-				for i, record := range records {
-					if fact.Id == record.Id {
+			for _, tFact := range t.Facts {
+				log("LEL")
+				for i, lFact := range facts {
+					log("LAL")
+					if tFact.Id == lFact.Id {
 						log(true)
-						records = append(records[:i], records[i+1:]...)
+						facts = append(facts[:i], facts[i+1:]...)
 					}
 				}
 			}
 
 			block = t.Blocks.BlkN
+			facts = nil
 
 			break
 		case FACT:
 			log("new fact from", ws.RemoteAddr(), *t.Fact.Fact)
-			records = append(records, t.Fact)
+			facts = append(facts, t.Fact)
 		}
 	}
 }
@@ -260,7 +263,7 @@ func handleFact(w http.ResponseWriter, r *http.Request) {
 
 		t := &Fact{Id: time.Now().String(), Fact: &fact}
 		factNotify <- t
-		records = append(records, t)
+		facts = append(facts, t)
 	}
 }
 
@@ -314,11 +317,11 @@ func createNextBlock() *Block {
 			Index:     latestBlk.Index + 1,
 			PrevHash:  latestBlk.Hash,
 			Timestamp: time.Now(),
-			Facts:     records,
+			Facts:     facts,
 		}
 	)
 
-	records = nil
+	facts = nil
 
 	if time.Since(latestBlk.Timestamp) < time.Second*10 {
 		blk.Complexity = latestBlk.Complexity + 1

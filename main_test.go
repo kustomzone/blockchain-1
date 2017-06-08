@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"fmt"
 	"net/http"
 	"strconv"
 	"testing"
@@ -10,8 +9,8 @@ import (
 
 func Test(t *testing.T) {
 	var (
-		mining  = 10000
-		clients = 4
+		mining  = 1000
+		clients = 2
 		done    = make(chan bool, clients)
 
 		jd = []byte(`{"data":"."}`)
@@ -20,13 +19,15 @@ func Test(t *testing.T) {
 
 	send := func(clientPort int) {
 		for i := 0; i < mining; i++ {
-			http.Get("http://localhost:100" + strconv.Itoa(clientPort) + "/mine?nonce=" + string(i))
+			r, _ := http.Get("http://localhost:100" + strconv.Itoa(clientPort) + "/mine?nonce=" + string(i))
+			defer r.Body.Close()
 		}
 		done <- true
 	}
 
 	for i := 0; i < clients; i++ {
-		http.Post("http://localhost:100"+strconv.Itoa(i)+"/fact", "", bytes.NewBuffer(jd))
+		r, _ := http.Post("http://localhost:100"+strconv.Itoa(i)+"/fact", "", bytes.NewBuffer(jd))
+		defer r.Body.Close()
 
 		go send(i)
 	}
@@ -34,5 +35,4 @@ func Test(t *testing.T) {
 	for i := 0; i < clients; i++ {
 		<-done
 	}
-	fmt.Println("lal")
 }

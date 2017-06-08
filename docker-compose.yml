@@ -1,24 +1,24 @@
 version: '3'
 services:
-  cli1:
+  nodeRoot:
     image: blkchn
     command: blockchain -v -hport 1000 -wsport 2000
     ports:
       - '1000:1000'
       - '2000:2000'
-  cli2:
+  node1:
     image: blkchn
-    command: blockchain -v -ipeer cli1:1000 -hport 1001 -wsport 2001
+    command: blockchain -v -ipeer nodeRoot:1000 -hport 1001 -wsport 2001
     ports:
       - '1001:1001'
       - '2001:2001'
     depends_on:
-      - cli1
-  cli3:
+      - nodeRoot
+  node2:
     image: blkchn
-    command: blockchain -v -ipeer cli2:1001 -hport 1002 -wsport 2002
+    command: blockchain -v -ipeer node1:1001 -hport 1002 -wsport 2002
     ports:
       - '1002:1002'
       - '2002:2002'
     depends_on:
-      - cli2
+      - node1

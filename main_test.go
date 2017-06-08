@@ -10,7 +10,7 @@ import (
 func Test(t *testing.T) {
 	var (
 		mining  = 1000
-		clients = 2
+		clients = 1
 		done    = make(chan bool, clients)
 
 		jd = []byte(`{"data":"."}`)

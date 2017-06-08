@@ -150,7 +150,7 @@ func notify() {
 						},
 					})
 					if err != nil {
-						panic(err)
+						removePeer(node)
 					}
 				}
 			}
@@ -161,10 +161,21 @@ func notify() {
 						Type: FACT, Fact: fact,
 					})
 					if err != nil {
-						panic(err)
+						removePeer(node)
 					}
 				}
 			}
+		}
+	}
+}
+
+func removePeer(ws *websocket.Conn) {
+	log("client disconnect", ws.RemoteAddr())
+
+	for i, addr := range nodes.Addrs {
+		if ws.RemoteAddr().String() == addr {
+			nodes.Addrs = append(nodes.Addrs[:i], nodes.Addrs[i+1:]...)
+			nodes.Conns = append(nodes.Conns[:i], nodes.Conns[i+1:]...)
 		}
 	}
 }
@@ -175,7 +186,8 @@ func read(ws *websocket.Conn) {
 
 		err := websocket.JSON.Receive(ws, t)
 		if err != nil {
-			panic(err)
+			removePeer(ws)
+			return
 		}
 
 		switch t.Type {
@@ -184,19 +196,15 @@ func read(ws *websocket.Conn) {
 				blockchain = append(blockchain, t.Blocks.BlkS)
 			}
 
-			for _, tFact := range t.Facts {
-				log("LEL")
+			block = t.Blocks.BlkN
+
+			for _, tFact := range t.Blocks.BlkS.Facts {
 				for i, lFact := range facts {
-					log("LAL")
 					if tFact.Id == lFact.Id {
-						log(true)
 						facts = append(facts[:i], facts[i+1:]...)
 					}
 				}
 			}
-
-			block = t.Blocks.BlkN
-			facts = nil
 
 			break
 		case FACT:

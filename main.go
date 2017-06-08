@@ -8,12 +8,14 @@ import (
 	"golang.org/x/net/websocket"
 	l "log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const (
 	BLOCK = iota
+	FACT
 )
 
 var (
@@ -28,6 +30,7 @@ var (
 	records []*interface{}
 
 	mineNotify = make(chan *Block)
+	factNotify = make(chan *interface{})
 
 	nodes = &Nodes{}
 )
@@ -47,9 +50,11 @@ type Block struct {
 }
 
 type API struct {
-	Type  int      `json:"type,omitempty"`
-	Nodes []string `json:"nodes,omitempty"`
-	Block *Block   `json:"block,omitempty"`
+	Type   int            `json:"type,omitempty"`
+	Nodes  []string       `json:"nodes,omitempty"`
+	Block  *Block         `json:"block,omitempty"`
+	Fact   []*interface{} `json:"fact,omitempty"`
+	Record *interface{}   `json:"record"`
 }
 
 func init() {
@@ -66,29 +71,6 @@ func init() {
 		blockchain[0].Hash = calcHash(blockchain[0].String())
 		block = createNextBlock()
 	}
-}
-
-func main() {
-	// http server
-	go func() {
-		http.HandleFunc("/blocks", handleBlock)
-		http.HandleFunc("/fact", handleFact)
-		http.HandleFunc("/mine", handleMine)
-		http.HandleFunc("/nodes", handleNodes)
-
-		log("http server starting at port:", *httpPort)
-		panic(http.ListenAndServe(":"+*httpPort, nil))
-	}()
-
-	// websocket server
-	go func() {
-		http.Handle("/peer", websocket.Handler(handlePeer))
-
-		log("ws server starting at port:", *wsPort)
-		panic(http.ListenAndServe(":"+*wsPort, nil))
-	}()
-
-	notify()
 }
 
 func nodeInit() {
@@ -117,8 +99,14 @@ func nodeInit() {
 	}
 	block = createNextBlock()
 
-	for _, addr := range nodes.Addrs {
-		ws, err := websocket.Dial(addr, "", "ws://localhost:"+*wsPort+"/peer")
+	origin := "ws://localhost:" + *wsPort + "/peer"
+	for i, addr := range nodes.Addrs {
+		if addr == origin {
+			nodes.Addrs = append(nodes.Addrs[:i], nodes.Addrs[i+1:]...)
+			continue
+		}
+
+		ws, err := websocket.Dial(addr, "", origin)
 		if err != nil {
 			panic(err)
 		}
@@ -127,7 +115,7 @@ func nodeInit() {
 		nodes.Conns = append(nodes.Conns, ws)
 	}
 
-	ws, err := websocket.Dial("ws://"+*iPeer+"/peer", "", "ws://localhost:"+*wsPort+"/peer")
+	ws, err := websocket.Dial("ws://"+*iPeer+"/peer", "", origin)
 	if err != nil {
 		panic(err)
 	}
@@ -151,6 +139,17 @@ func notify() {
 					}
 				}
 			}
+		case fact, ok := <-factNotify:
+			if ok {
+				for _, node := range nodes.Conns {
+					err := websocket.JSON.Send(node, API{
+						Type: FACT, Record: fact,
+					})
+					if err != nil {
+						panic(err)
+					}
+				}
+			}
 		}
 	}
 }
@@ -164,19 +163,22 @@ func read(ws *websocket.Conn) {
 			panic(err)
 		}
 
-		if isValidBlock(t.Block, latestBlock()) {
-			blockchain = append(blockchain, t.Block)
+		switch t.Type {
+		case BLOCK:
+			log(t.Block)
+			if isValidBlock(t.Block, latestBlock()) {
+				blockchain = append(blockchain, t.Block)
+			}
+			break
+		case FACT:
+			log("new fact from", ws.RemoteAddr(), *t.Record)
+			records = append(records, t.Record)
 		}
 	}
 }
 
 func handlePeer(ws *websocket.Conn) {
-	var search bool
-
-	if len(nodes.Addrs) == 0 {
-		nodes.Addrs = append(nodes.Addrs, ws.RemoteAddr().String())
-		nodes.Conns = append(nodes.Conns, ws)
-	}
+	search := false
 	for _, node := range nodes.Addrs {
 		if node == ws.RemoteAddr().String() {
 			search = true
@@ -198,14 +200,34 @@ func handleBlock(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func handleFact(_ http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodPost {
+func handleFact(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		id, err := strconv.Atoi(r.URL.Query().Get("id"))
+		if err != nil {
+			panic(err)
+		}
+
+		if id < 0 || id > len(blockchain)-1 {
+			// send that id is incorrect
+			return
+		}
+
+		err = json.NewEncoder(w).Encode(API{
+			Fact: blockchain[id].Facts,
+		})
+		if err != nil {
+			panic(err)
+		}
+		break
+	case http.MethodPost:
 		var fact interface{}
 		err := json.NewDecoder(r.Body).Decode(&fact)
 		if err != nil {
 			panic(err)
 		}
 
+		factNotify <- &fact
 		records = append(records, &fact)
 	}
 }
@@ -235,8 +257,14 @@ func mine(nonce string) {
 }
 
 func (b *Block) String() string {
+	var facts string
+
+	for _, fact := range b.Facts {
+		facts += fmt.Sprint(*fact)
+	}
+
 	return b.PrevHash + b.Timestamp.String() +
-		fmt.Sprint(b.Index, b.Facts, b.Complexity)
+		fmt.Sprint(b.Index, facts, b.Complexity)
 }
 
 func calcHash(data string) string {
@@ -283,4 +311,27 @@ func log(info ...interface{}) {
 	if *verbose {
 		l.Println(info)
 	}
+}
+
+func main() {
+	// http server
+	go func() {
+		http.HandleFunc("/blocks", handleBlock)
+		http.HandleFunc("/fact", handleFact)
+		http.HandleFunc("/mine", handleMine)
+		http.HandleFunc("/nodes", handleNodes)
+
+		log("http server starting at port:", *httpPort)
+		panic(http.ListenAndServe(":"+*httpPort, nil))
+	}()
+
+	// websocket server
+	go func() {
+		http.Handle("/peer", websocket.Handler(handlePeer))
+
+		log("ws server starting at port:", *wsPort)
+		panic(http.ListenAndServe(":"+*wsPort, nil))
+	}()
+
+	notify()
 }

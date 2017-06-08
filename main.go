@@ -18,6 +18,39 @@ const (
 	FACT
 )
 
+type Nodes struct {
+	Conns []*websocket.Conn `json:"conns"`
+	Addrs []string          `json:"addrs"`
+}
+
+type Fact struct {
+	Id   string
+	Fact *interface{}
+}
+
+type Block struct {
+	Index      int       `json:"index"`
+	Hash       string    `json:"hash"`
+	PrevHash   string    `json:"prev_hash"`
+	Timestamp  time.Time `json:"timestamp"`
+	Complexity int       `json:"complexity"`
+	Facts      []*Fact   `json:"facts,omitempty"`
+}
+
+type BlockAPI struct {
+	BlkS *Block `json:"blk_s"`
+	BlkN *Block `json:"blk_n"`
+}
+
+type API struct {
+	Type       int       `json:"type,omitempty"`
+	Nodes      []string  `json:"nodes,omitempty"`
+	Blocks     *BlockAPI `json:"blocks,omitempty"`
+	Complexity int       `json:"complexity,omitempty"`
+	Facts      []*Fact   `json:"facts,omitempty"`
+	Fact       *Fact     `json:"fact, omitempty"`
+}
+
 var (
 	blockchain []*Block
 	block      *Block
@@ -27,35 +60,13 @@ var (
 	wsPort   = flag.String("wsport", "", "set ws port")
 	verbose  = flag.Bool("v", false, "enable verbose output")
 
-	records []*interface{}
+	records []*Fact
 
-	mineNotify = make(chan *Block)
-	factNotify = make(chan *interface{})
+	mineNotify = make(chan *BlockAPI)
+	factNotify = make(chan *Fact)
 
 	nodes = &Nodes{}
 )
-
-type Nodes struct {
-	Conns []*websocket.Conn `json:"conns"`
-	Addrs []string          `json:"addrs"`
-}
-
-type Block struct {
-	Index      int            `json:"index"`
-	Hash       string         `json:"hash"`
-	PrevHash   string         `json:"prev_hash"`
-	Timestamp  time.Time      `json:"timestamp"`
-	Facts      []*interface{} `json:"facts,omitempty"`
-	Complexity int            `json:"complexity"`
-}
-
-type API struct {
-	Type   int            `json:"type,omitempty"`
-	Nodes  []string       `json:"nodes,omitempty"`
-	Block  *Block         `json:"block,omitempty"`
-	Fact   []*interface{} `json:"fact,omitempty"`
-	Record *interface{}   `json:"record"`
-}
 
 func init() {
 	flag.Parse()
@@ -64,8 +75,6 @@ func init() {
 		nodeInit()
 	} else {
 		blockchain = []*Block{{
-			Index:     0,
-			PrevHash:  "0",
 			Timestamp: time.Now(),
 		}}
 		blockchain[0].Hash = calcHash(blockchain[0].String())
@@ -128,11 +137,15 @@ func nodeInit() {
 func notify() {
 	for {
 		select {
-		case blk, ok := <-mineNotify:
+		case t, ok := <-mineNotify:
 			if ok {
+				block = t.BlkN
 				for _, node := range nodes.Conns {
-					err := websocket.JSON.Send(node, API{
-						Type: BLOCK, Block: blk,
+					err := websocket.JSON.Send(node, &API{
+						Blocks: &BlockAPI{
+							BlkN: t.BlkN,
+							BlkS: t.BlkS,
+						},
 					})
 					if err != nil {
 						panic(err)
@@ -143,7 +156,7 @@ func notify() {
 			if ok {
 				for _, node := range nodes.Conns {
 					err := websocket.JSON.Send(node, API{
-						Type: FACT, Record: fact,
+						Type: FACT, Fact: fact,
 					})
 					if err != nil {
 						panic(err)
@@ -165,14 +178,24 @@ func read(ws *websocket.Conn) {
 
 		switch t.Type {
 		case BLOCK:
-			log(t.Block)
-			if isValidBlock(t.Block, latestBlock()) {
-				blockchain = append(blockchain, t.Block)
+			if isValidBlock(t.Blocks.BlkS, latestBlock()) {
+				blockchain = append(blockchain, t.Blocks.BlkS)
 			}
+
+			for _, fact := range t.Facts {
+				for i, record := range records {
+					if fact.Id == record.Id {
+						records = append(records[:i], records[i+1:]...)
+					}
+				}
+			}
+
+			block = t.Blocks.BlkN
+
 			break
 		case FACT:
-			log("new fact from", ws.RemoteAddr(), *t.Record)
-			records = append(records, t.Record)
+			log("new fact from", ws.RemoteAddr(), *t.Fact.Fact)
+			records = append(records, t.Fact)
 		}
 	}
 }
@@ -214,7 +237,7 @@ func handleFact(w http.ResponseWriter, r *http.Request) {
 		}
 
 		err = json.NewEncoder(w).Encode(API{
-			Fact: blockchain[id].Facts,
+			Facts: blockchain[id].Facts,
 		})
 		if err != nil {
 			panic(err)
@@ -227,8 +250,9 @@ func handleFact(w http.ResponseWriter, r *http.Request) {
 			panic(err)
 		}
 
-		factNotify <- &fact
-		records = append(records, &fact)
+		t := &Fact{Id: time.Now().String(), Fact: &fact}
+		factNotify <- t
+		records = append(records, t)
 	}
 }
 
@@ -246,11 +270,10 @@ func handleNodes(w http.ResponseWriter, _ *http.Request) {
 }
 
 func mine(nonce string) {
-	if strings.Count(calcHash(nonce)[:block.Complexity], "0") == block.Complexity {
+	if strings.Count(calcHash(block.Hash + nonce)[:block.Complexity], "0") == block.Complexity {
 		if isValidBlock(block, latestBlock()) {
-			mineNotify <- block
 			blockchain = append(blockchain, block)
-			block = createNextBlock()
+			mineNotify <- &BlockAPI{BlkS: block, BlkN: createNextBlock()}
 			records = nil
 		}
 	}
@@ -258,9 +281,10 @@ func mine(nonce string) {
 
 func (b *Block) String() string {
 	var facts string
-
 	for _, fact := range b.Facts {
-		facts += fmt.Sprint(*fact)
+		log(fact.Id)
+		facts += fact.Id
+		facts += fmt.Sprint(*fact.Fact)
 	}
 
 	return b.PrevHash + b.Timestamp.String() +
@@ -293,6 +317,8 @@ func createNextBlock() *Block {
 		blk.Complexity = latestBlk.Complexity - 1
 	}
 
+	log(blk.Index)
+	log(latestBlk.Index)
 	blk.Hash = calcHash(blk.String())
 	return blk
 }
@@ -312,6 +338,7 @@ func log(info ...interface{}) {
 		l.Println(info)
 	}
 }
+
 
 func main() {
 	// http server

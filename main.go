@@ -87,7 +87,7 @@ var (
 	// nodes
 	nodes = &Nodes{}
 
-	// initial peer addr
+	// initial node addr
 	iNode = flag.String("i", "", "set initial node address")
 	// node http server port
 	hPort = flag.String("h", "", "set node http server port")
@@ -106,7 +106,7 @@ func init() {
 	// parse flags
 	flag.Parse()
 
-	// if have init peer flag
+	// if have init node flag
 	if *iNode != "" {
 		// init new node
 		initNode()
@@ -367,9 +367,9 @@ func notify() {
 	}
 }
 
-// handle new peer
-func handlePeer(ws *websocket.Conn) {
-	// add peer to connections
+// handle new node
+func p2pHandler(ws *websocket.Conn) {
+	// add node to connections
 	nodes.Addrs = append(nodes.Addrs, ws.RemoteAddr().String())
 	nodes.Conns = append(nodes.Conns, ws)
 
@@ -379,7 +379,7 @@ func handlePeer(ws *websocket.Conn) {
 
 // handle block request
 // sending blockchain and mining block
-func handleBlockchain(w http.ResponseWriter, _ *http.Request) {
+func blockchainHandler(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	err := json.NewEncoder(w).Encode(API{
 		Blockchain: blockchain,
@@ -395,7 +395,7 @@ func handleBlockchain(w http.ResponseWriter, _ *http.Request) {
 // handler, that when requested by method get,
 // sends the facts of the specified block,
 // and, if requested by method post, takes a new unconfirmed fact
-func handleFact(w http.ResponseWriter, r *http.Request) {
+func factHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	switch r.Method {
@@ -446,13 +446,13 @@ func handleFact(w http.ResponseWriter, r *http.Request) {
 }
 
 // handle that try mining
-func handleMine(w http.ResponseWriter, r *http.Request) {
+func mineHandler(w http.ResponseWriter, r *http.Request) {
 	// try mining
 	go tryMining(r.URL.Query().Get("nonce"))
 }
 
 // handler that send nodes addresses
-func handleNodes(w http.ResponseWriter, _ *http.Request) {
+func nodesHandler(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	err := json.NewEncoder(w).Encode(API{Nodes: nodes.Addrs})
 	if err != nil {
@@ -486,17 +486,17 @@ func tryMining(nonce string) {
 func main() {
 	// start http server
 	go func() {
-		http.HandleFunc("/blockchain", handleBlockchain)
-		http.HandleFunc("/fact", handleFact)
-		http.HandleFunc("/mine", handleMine)
-		http.HandleFunc("/nodes", handleNodes)
+		http.HandleFunc("/blockchain", blockchainHandler)
+		http.HandleFunc("/fact", factHandler)
+		http.HandleFunc("/mine", mineHandler)
+		http.HandleFunc("/nodes", nodesHandler)
 
 		panic(http.ListenAndServe(":"+*hPort, nil))
 	}()
 
 	// start websocket server
 	go func() {
-		http.Handle("/p2p", websocket.Handler(handlePeer))
+		http.Handle("/p2p", websocket.Handler(p2pHandler))
 
 		panic(http.ListenAndServe(":"+*wsPort, nil))
 	}()

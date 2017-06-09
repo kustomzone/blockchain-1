@@ -1,5 +1,5 @@
 # Simple blockchain
-Implementation of a simple blockchain, which can store data with the possibility of mining
+Implementation of a simple blockchain, which can store facts with the possibility of mining
 ### [How it work?](BLOCKCHAIN.md)
 ## Usage
 ### Docker Compose
@@ -32,10 +32,6 @@ $ go run main.go -v -i 1000 -h 1001 -ws 2001
 ```
 3. Repeat second point to start each node
 ## API
-http.HandleFunc("/blockchain", handleBlockchain)
-	\   	http.HandleFunc("/fact", handleFact)
-		http.HandleFunc("/mine", handleMine)
-		http.HandleFunc("/nodes", handleNodes)
 ### Get nodes
 REQUEST
 ```

@@ -1,1 +1,1 @@
-# Blockchain. How its works?
+# Blockchain

@@ -313,10 +313,6 @@ func isValidBlock(unconfirmedBlk *Block) bool {
 		latestBlk.Hash != unconfirmedBlk.PrevHash ||
 		unconfirmedBlk.calcHash() != unconfirmedBlk.Hash {
 
-		log.Println(latestBlk.Index+1, " --- ", unconfirmedBlk.Index)
-		log.Println(latestBlk.Hash, " --- ", unconfirmedBlk.PrevHash)
-		log.Println(unconfirmedBlk.calcHash(), " --- ", unconfirmedBlk.Hash)
-
 		return false
 	}
 	return true
@@ -469,14 +465,10 @@ func tryMining(nonce string) {
 	// update nonce
 	miningBlock.Nonce = nonce
 
-	log.Println(" ------------------------------------------- ")
-
 	// solve a problem
 	if strings.Count(
 		miningBlock.calcHash()[:miningBlock.Complexity],
 		"0") == miningBlock.Complexity {
-
-		log.Println("preved")
 
 		// if solved -> validate block
 		if isValidBlock(miningBlock) {

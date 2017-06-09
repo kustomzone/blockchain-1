@@ -2,23 +2,23 @@ version: '3'
 services:
   nodeR:
     image: blkchn
-    command: blkchn -v -h 1000 -ws 2000
+    command: blkchn -v -h 0918 -ws 0919
     ports:
-      - '1000:1000'
-      - '2000:2000'
+      - '0918:0918'
+      - '0919:0919'
   node1:
     image: blkchn
-    command: blkchn -v -i nodeR:1000 -h 1001 -ws 2001
+    command: blkchn -v -i nodeR:0918 -h 0928 -ws 0929
     ports:
-      - '1001:1001'
-      - '2001:2001'
+      - '0928:0928'
+      - '0929:0929'
     depends_on:
-      - nodeRoot
+      - nodeR
   node2:
     image: blkchn
-    command: blkchn -v -i node1:1001 -hport 1002 -wsport 2002
+    command: blkchn -v -i node1:0928 -h 0938 -ws 0939
     ports:
-      - '1002:1002'
-      - '2002:2002'
+      - '0938:0938'
+      - '0939:0939'
     depends_on:
       - node1

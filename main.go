@@ -1,28 +1,36 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"flag"
+	"fmt"
 	"golang.org/x/net/websocket"
+	"log"
+	"net/http"
+	"strconv"
+	"strings"
 	"time"
 )
 
 const (
 	// constants are used to understand
-	// what message came from the node
-
-	// BLOCK means that received valid / mining block
-	BLOCK = iota
+	// what data came from the node
+	// VMBLOCKS means that received valid / mining block
+	VMBLOCKS = iota
 	// FACT means that received new fact
 	FACT
 )
 
 // Nodes type for store current connections
 type Nodes struct {
+	// store to send data to the nodes
 	Conns []*websocket.Conn `json:"conns"`
-	Addrs []string          `json:"addrs"`
+	// store to send the current node list to a new node
+	Addrs []string `json:"addrs"`
 }
 
-// Fact type for fact
+// Fact type for store fact
 type Fact struct {
 	// has unique id for identify
 	Id   string       `json:"id"`
@@ -40,10 +48,12 @@ type Block struct {
 	Facts     []*Fact   `json:"facts,omitempty"`
 	// mining complexity
 	Complexity int `json:"complexity"`
+	// random number to form a hash for successful mining
+	Nonce string `json:"nonce"`
 }
 
-// BlockAPI type for send valid block / new mining block to other nodes
-type BlockAPI struct {
+// VMBlock type for send valid / mining block to other nodes
+type VMBlocks struct {
 	ValidBlock  *Block `json:"valid_block"`
 	MiningBlock *Block `json:"mining_block,omitempty"`
 }
@@ -51,16 +61,19 @@ type BlockAPI struct {
 // API type for communicate with other nodes or clients
 type API struct {
 	// information type
-	// used only when send valid / new block or new fact
+	// used only when send valid / mining block or new fact
 	// to other nodes
-	Type       int       `json:"type,omitempty"`
-	Complexity int       `json:"complexity,omitempty"`
-	Error      string    `json:"error,omitempty"`
-	Fact       *Fact     `json:"fact,omitempty"`
-	Blocks     *BlockAPI `json:"blocks,omitempty"`
-	Nodes      []string  `json:"nodes,omitempty"`
-	Facts      []*Fact   `json:"facts,omitempty"`
-	Blockchain []*Block  `json:"blockchain,omitempty"`
+	Type int `json:"type,omitempty"`
+	// mining complexity
+	Complexity int `json:"complexity,omitempty"`
+	// error message
+	Error    string    `json:"error,omitempty"`
+	Fact     *Fact     `json:"fact,omitempty"`
+	VMBlocks *VMBlocks `json:"vm_blocks,omitempty"`
+	// nodes addresses
+	Nodes      []string `json:"nodes,omitempty"`
+	Facts      []*Fact  `json:"facts,omitempty"`
+	Blockchain []*Block `json:"blockchain,omitempty"`
 }
 
 var (
@@ -83,7 +96,7 @@ var (
 	v = flag.Bool("v", false, "enable verbose output")
 
 	// channel announcing nodes about successful mining
-	miningSuccessNotice = make(chan *BlockAPI)
+	miningSuccessNotice = make(chan *VMBlocks)
 	// channel announcing nodes about new fact
 	newFactNotice = make(chan *Fact)
 )
@@ -95,7 +108,7 @@ func init() {
 	// if have init peer flag
 	if *iPeer != "" {
 		// init new node
-		//initNode()
+		initNode()
 	} else {
 		// init root node
 		initRootNode()
@@ -109,317 +122,383 @@ func initRootNode() {
 		Timestamp: time.Now(),
 	}}
 	// calc hash for genesis block
-	//blockchain[0].Hash = calcHash(blockchain[0].String())
+	blockchain[0].Hash = blockchain[0].calcHash()
 
 	// init mining block
-	//miningBlock = createNextBlock()
+	miningBlock = createMiningBlock()
 }
 
-//func initNode() {
-//	r, err := http.Get("http://" + *iPeer + "/nodes")
-//	if err != nil {
-//		panic(err)
-//	}
-//	defer r.Body.Close()
-//
-//	var t *API
-//	err = json.NewDecoder(r.Body).Decode(&t)
-//	if err != nil {
-//		panic(err)
-//	}
-//	nodes.Addrs = t.Nodes
-//
-//	r, err = http.Get("http://" + *iPeer + "/blocks")
-//	if err != nil {
-//		panic(err)
-//	}
-//	defer r.Body.Close()
-//
-//	err = json.NewDecoder(r.Body).Decode(&t)
-//	if err != nil {
-//		panic(err)
-//	}
-//	block = t.Blocks.BlkN
-//	blockchain = t.Blockchain
-//
-//	origin := "ws://localhost:" + *wsPort + "/peer"
-//	for i, addr := range nodes.Addrs {
-//		if addr == origin {
-//			nodes.Addrs = append(nodes.Addrs[:i], nodes.Addrs[i+1:]...)
-//			continue
-//		}
-//
-//		ws, err := websocket.Dial(addr, "", origin)
-//		if err != nil {
-//			panic(err)
-//		}
-//
-//		go read(ws)
-//		nodes.Conns = append(nodes.Conns, ws)
-//	}
-//
-//	ws, err := websocket.Dial("ws://"+*iPeer+"/peer", "", origin)
-//	if err != nil {
-//		panic(err)
-//	}
-//
-//	go read(ws)
-//	nodes.Addrs = append(nodes.Addrs, ws.RemoteAddr().String())
-//	nodes.Conns = append(nodes.Conns, ws)
-//}
-//
-//func notify() {
-//	for {
-//		select {
-//		case t, ok := <-mineNotify:
-//			if ok {
-//				block = t.BlkN
-//				for _, node := range nodes.Conns {
-//					err := websocket.JSON.Send(node, &API{
-//						Blocks: &BlockAPI{
-//							BlkN: t.BlkN,
-//							BlkS: t.BlkS,
-//						},
-//					})
-//					if err != nil {
-//						removePeer(node)
-//					}
-//				}
-//			}
-//		case fact, ok := <-factNotify:
-//			if ok {
-//				for _, node := range nodes.Conns {
-//					err := websocket.JSON.Send(node, API{
-//						Type: FACT, Fact: fact,
-//					})
-//					if err != nil {
-//						removePeer(node)
-//					}
-//				}
-//			}
-//		}
-//	}
-//}
-//
-//func removePeer(ws *websocket.Conn) {
-//	info("client disconnect", ws.RemoteAddr())
-//
-//	for i, addr := range nodes.Addrs {
-//		if ws.RemoteAddr().String() == addr {
-//			nodes.Addrs = append(nodes.Addrs[:i], nodes.Addrs[i+1:]...)
-//			nodes.Conns = append(nodes.Conns[:i], nodes.Conns[i+1:]...)
-//		}
-//	}
-//}
-//
-//func read(ws *websocket.Conn) {
-//	for {
-//		t := &API{}
-//
-//		err := websocket.JSON.Receive(ws, t)
-//		if err != nil {
-//			removePeer(ws)
-//			return
-//		}
-//
-//		switch t.Type {
-//		case BLOCK:
-//			if isValidBlock(t.Blocks.BlkS, latestBlock()) {
-//				blockchain = append(blockchain, t.Blocks.BlkS)
-//			}
-//
-//			block = t.Blocks.BlkN
-//
-//			for _, tFact := range t.Blocks.BlkS.Facts {
-//				for i, lFact := range facts {
-//					if tFact.Id == lFact.Id {
-//						facts = append(facts[:i], facts[i+1:]...)
-//					}
-//				}
-//			}
-//
-//			break
-//		case FACT:
-//			info("new fact from", ws.RemoteAddr(), *t.Fact.Fact)
-//			facts = append(facts, t.Fact)
-//		}
-//	}
-//}
-//
-//func handlePeer(ws *websocket.Conn) {
-//	search := false
-//	for _, node := range nodes.Addrs {
-//		if node == ws.RemoteAddr().String() {
-//			search = true
-//		}
-//	}
-//	if !search {
-//		nodes.Addrs = append(nodes.Addrs, ws.RemoteAddr().String())
-//		nodes.Conns = append(nodes.Conns, ws)
-//	}
-//
-//	read(ws)
-//}
-//
-//func handleBlock(w http.ResponseWriter, _ *http.Request) {
-//	w.Header().Set("Content-Type", "application/json")
-//	err := json.NewEncoder(w).Encode(API{
-//		Blockchain: blockchain,
-//		Blocks: &BlockAPI{
-//			BlkN: block,
-//		},
-//	})
-//	if err != nil {
-//		panic(err)
-//	}
-//}
-//
-//func handleFact(w http.ResponseWriter, r *http.Request) {
-//	switch r.Method {
-//	case http.MethodGet:
-//		w.Header().Set("Content-Type", "application/json")
-//
-//		id, err := strconv.Atoi(r.URL.Query().Get("id"))
-//		if err != nil || id < 0 || id > len(blockchain)-1 {
-//			w.WriteHeader(http.StatusInternalServerError)
-//			err = json.NewEncoder(w).Encode(API{
-//				Error: "invalid id",
-//			})
-//			if err != nil {
-//				panic(err)
-//			}
-//			return
-//		}
-//
-//		err = json.NewEncoder(w).Encode(API{
-//			Facts: blockchain[id].Facts,
-//		})
-//		if err != nil {
-//			panic(err)
-//		}
-//
-//		break
-//	case http.MethodPost:
-//		var fact interface{}
-//		err := json.NewDecoder(r.Body).Decode(&fact)
-//		if err != nil {
-//			w.Header().Set("Content-Type", "application/json")
-//			w.WriteHeader(http.StatusInternalServerError)
-//			err = json.NewEncoder(w).Encode(API{
-//				Error: "invalid incoming data",
-//			})
-//			if err != nil {
-//				panic(err)
-//			}
-//			return
-//		}
-//
-//		t := &Fact{Id: time.Now().String(), Fact: &fact}
-//		factNotify <- t
-//		facts = append(facts, t)
-//	}
-//}
-//
-//func handleMine(w http.ResponseWriter, r *http.Request) {
-//	go mine(r.URL.Query().Get("nonce"))
-//	w.WriteHeader(http.StatusOK)
-//}
-//
-//func handleNodes(w http.ResponseWriter, _ *http.Request) {
-//	w.Header().Set("Content-Type", "application/json")
-//	err := json.NewEncoder(w).Encode(API{Nodes: nodes.Addrs})
-//	if err != nil {
-//		panic(err)
-//	}
-//}
-//
-//func mine(nonce string) {
-//	if strings.Count(calcHash(block.Hash + nonce)[:block.Complexity], "0") == block.Complexity {
-//		if isValidBlock(block, latestBlock()) {
-//			blockchain = append(blockchain, block)
-//			mineNotify <- &BlockAPI{BlkS: block, BlkN: createNextBlock()}
-//			info(block.String())
-//		}
-//	}
-//}
-//
-//func (b *Block) String() string {
-//	var facts string
-//	for _, fact := range b.Facts {
-//		facts += fact.Id
-//		facts += fmt.Sprint(*fact.Fact)
-//	}
-//
-//	return b.PrevHash + b.Timestamp.String() +
-//		fmt.Sprint(b.Index, facts, b.Complexity)
-//}
-//
-//func calcHash(s string) string {
-//	return fmt.Sprintf("%x", sha256.Sum256([]byte(s)))
-//}
-//
-//func latestBlock() *Block {
-//	return blockchain[len(blockchain)-1]
-//}
-//
-//func createNextBlock() *Block {
-//	var (
-//		latestBlk = latestBlock()
-//
-//		blk = &Block{
-//			Index:     latestBlk.Index + 1,
-//			PrevHash:  latestBlk.Hash,
-//			Timestamp: time.Now(),
-//			Facts:     facts,
-//		}
-//	)
-//
-//	facts = nil
-//
-//	if time.Since(latestBlk.Timestamp) < time.Second*10 {
-//		blk.Complexity = latestBlk.Complexity + 1
-//	} else {
-//		blk.Complexity = latestBlk.Complexity - 1
-//	}
-//
-//	blk.Hash = calcHash(blk.String())
-//	return blk
-//}
-//
-//func isValidBlock(nBlock, pBlock *Block) bool {
-//	if pBlock.Index+1 != nBlock.Index ||
-//		pBlock.Hash != nBlock.PrevHash ||
-//		calcHash(nBlock.String()) != nBlock.Hash {
-//
-//		return false
-//	}
-//	return true
-//}
-//
-//// print info log in verbose mode
-//func info(info ...interface{}) {
-//	if *v {
-//		log.Println(info)
-//	}
-//}
-//
-//func main() {
-//	go func() {
-//		http.HandleFunc("/blocks", handleBlock)
-//		http.HandleFunc("/fact", handleFact)
-//		http.HandleFunc("/mine", handleMine)
-//		http.HandleFunc("/nodes", handleNodes)
-//
-//		info("http server starting at port:", *hPort)
-//		panic(http.ListenAndServe(":"+*hPort, nil))
-//	}()
-//
-//	go func() {
-//		http.Handle("/peer", websocket.Handler(handlePeer))
-//
-//		info("ws server starting at port:", *wsPort)
-//		panic(http.ListenAndServe(":"+*wsPort, nil))
-//	}()
-//
-//	notify()
-//}
+// init node
+func initNode() {
+	var (
+		t *API
+		// origin node address
+		// needed for send other nodes
+		// that they know with which node to interact
+		origin = "ws://localhost:" + *wsPort
+	)
+
+	// get current nodes
+	r, err := http.Get("http://" + *iPeer + "/nodes")
+	if err != nil {
+		panic(err)
+	}
+	defer r.Body.Close()
+
+	err = json.NewDecoder(r.Body).Decode(&t)
+	if err != nil {
+		panic(err)
+	}
+	// set current nodes addr
+	nodes.Addrs = t.Nodes
+
+	// get current blockchain and mining block
+	r, err = http.Get("http://" + *iPeer + "/blockchain")
+	if err != nil {
+		panic(err)
+	}
+	defer r.Body.Close()
+
+	err = json.NewDecoder(r.Body).Decode(&t)
+	if err != nil {
+		panic(err)
+	}
+	// set current mining block
+	miningBlock = t.VMBlocks.MiningBlock
+	// set current blockchain
+	blockchain = t.Blockchain
+
+	// connect to each nodes
+	for _, addr := range nodes.Addrs {
+		// dial to node
+		ws, err := websocket.Dial(addr, "", origin)
+		if err != nil {
+			panic(err)
+		}
+
+		// start receiving node
+		go receive(ws)
+		// added to connections
+		nodes.Conns = append(nodes.Conns, ws)
+	}
+
+	// dial to init node
+	ws, err := websocket.Dial("ws://"+*iPeer, "", origin)
+	if err != nil {
+		panic(err)
+	}
+
+	// start receiving init node
+	go receive(ws)
+	// added to connections and addrs
+	nodes.Addrs = append(nodes.Addrs, ws.RemoteAddr().String())
+	nodes.Conns = append(nodes.Conns, ws)
+}
+
+// returns latest blockchain block
+func latestBlock() *Block {
+	return blockchain[len(blockchain)-1]
+}
+
+// create next mining block
+func createMiningBlock() *Block {
+	var (
+		// get latest block
+		latestBlk = latestBlock()
+
+		// create new block
+		blk = &Block{
+			Index:     latestBlk.Index + 1,
+			PrevHash:  latestBlk.Hash,
+			Timestamp: time.Now(),
+			Facts:     unconfirmedFacts,
+		}
+	)
+	// flush unconfirmed facts
+	// now he in new mining block
+	unconfirmedFacts = nil
+
+	// if time since create latest block < 10s
+	// increase complexity
+	if time.Since(latestBlk.Timestamp) < time.Second*10 {
+		blk.Complexity = latestBlk.Complexity + 1
+	} else {
+		// if < 10s -> decrease
+		blk.Complexity = latestBlk.Complexity - 1
+	}
+
+	blk.Hash = blk.calcHash()
+	return blk
+}
+
+// calc hash for block
+func (b *Block) calcHash() string {
+	// need to convert all the facts into a string to pass in sha256
+	facts := ""
+	for _, fact := range b.Facts {
+		facts += fact.Id
+		facts += fmt.Sprint(*fact.Fact)
+	}
+
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(
+		b.PrevHash+b.Timestamp.String()+b.Nonce+
+			fmt.Sprint(b.Index, facts, b.Complexity)),
+	))
+}
+
+// receive data from node
+func receive(ws *websocket.Conn) {
+	for {
+		t := &API{}
+
+		err := websocket.JSON.Receive(ws, t)
+		if err != nil {
+			// if error -> node disconnect
+			nodeRemove(ws)
+			return
+		}
+
+		// switch data type
+		switch t.Type {
+		case VMBLOCKS:
+			// if block
+			// valid this block
+			if isValidBlock(t.VMBlocks.ValidBlock) {
+				// if valid -> append to blockchain
+				blockchain = append(blockchain, t.VMBlocks.ValidBlock)
+			}
+
+			// update mining block
+			miningBlock = t.VMBlocks.MiningBlock
+
+			// check on the repetition of facts
+			for _, tFact := range t.VMBlocks.ValidBlock.Facts {
+				for i, lFact := range unconfirmedFacts {
+					if tFact.Id == lFact.Id {
+						// if found -> remove fact
+						unconfirmedFacts = append(unconfirmedFacts[:i], unconfirmedFacts[i+1:]...)
+					}
+				}
+			}
+
+			break
+		case FACT:
+			// if fact
+			// append to unconfirmed facts
+			unconfirmedFacts = append(unconfirmedFacts, t.Fact)
+		}
+	}
+}
+
+// remove node from nodes storage
+func nodeRemove(ws *websocket.Conn) {
+	// search node id
+	for i, addr := range nodes.Addrs {
+		// if found
+		if ws.RemoteAddr().String() == addr {
+			// remove from store
+			nodes.Addrs = append(nodes.Addrs[:i], nodes.Addrs[i+1:]...)
+			nodes.Conns = append(nodes.Conns[:i], nodes.Conns[i+1:]...)
+		}
+	}
+}
+
+// block validation
+func isValidBlock(unconfirmedBlk *Block) bool {
+	latestBlk := latestBlock()
+
+	if latestBlk.Index+1 != unconfirmedBlk.Index ||
+		latestBlk.Hash != unconfirmedBlk.PrevHash ||
+		unconfirmedBlk.calcHash() != unconfirmedBlk.Hash {
+
+		return false
+	}
+	return true
+}
+
+// print info log in verbose mode
+func info(info ...interface{}) {
+	if *v {
+		log.Println(info)
+	}
+}
+
+// notify the nodes of a successful mining or new fact
+func notify() {
+	for {
+		select {
+		case t, ok := <-miningSuccessNotice:
+			// if successful mining
+			if ok {
+				// update mining block
+				miningBlock = t.MiningBlock
+				// notify nodes
+				for _, node := range nodes.Conns {
+					err := websocket.JSON.Send(node, &API{
+						Type: VMBLOCKS,
+						VMBlocks: &VMBlocks{
+							ValidBlock:  t.ValidBlock,
+							MiningBlock: t.MiningBlock,
+						},
+					})
+					if err != nil {
+						// if err -> node disconnect
+						nodeRemove(node)
+					}
+				}
+			}
+		case fact, ok := <-newFactNotice:
+			// if new fact
+			if ok {
+				// notify nodes
+				for _, node := range nodes.Conns {
+					err := websocket.JSON.Send(node, API{
+						Type: FACT, Fact: fact,
+					})
+					if err != nil {
+						// if err -> node disconnect
+						nodeRemove(node)
+					}
+				}
+			}
+		}
+	}
+}
+
+// handle new peer
+func handlePeer(ws *websocket.Conn) {
+	// add peer to connections
+	nodes.Addrs = append(nodes.Addrs, ws.RemoteAddr().String())
+	nodes.Conns = append(nodes.Conns, ws)
+
+	// start receiving
+	receive(ws)
+}
+
+// handle block request
+// sending blockchain and mining block
+func handleBlockchain(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	err := json.NewEncoder(w).Encode(API{
+		Blockchain: blockchain,
+		VMBlocks: &VMBlocks{
+			MiningBlock: miningBlock,
+		},
+	})
+	if err != nil {
+		panic(err)
+	}
+}
+
+// handler, that when requested by method get,
+// sends the facts of the specified block,
+// and, if requested by method post, takes a new unconfirmed fact
+func handleFact(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	switch r.Method {
+	case http.MethodGet:
+
+		id, err := strconv.Atoi(r.URL.Query().Get("id"))
+		// send that received id is invalid
+		if err != nil || id < 0 || id > len(blockchain)-1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			err = json.NewEncoder(w).Encode(API{
+				Error: "Invalid block id",
+			})
+			if err != nil {
+				panic(err)
+			}
+			return
+		}
+
+		// send block facts
+		err = json.NewEncoder(w).Encode(API{
+			Facts: blockchain[id].Facts,
+		})
+		if err != nil {
+			panic(err)
+		}
+
+		break
+	case http.MethodPost:
+		var fact interface{}
+		err := json.NewDecoder(r.Body).Decode(&fact)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			err = json.NewEncoder(w).Encode(API{
+				Error: "Invalid incoming data",
+			})
+			if err != nil {
+				panic(err)
+			}
+			return
+		}
+
+		t := &Fact{Id: time.Now().String(), Fact: &fact}
+		// notify nodes of a new fact
+		newFactNotice <- t
+		// append to other unconfirmed facts
+		unconfirmedFacts = append(unconfirmedFacts, t)
+	}
+}
+
+// handle that try mining
+func handleMine(w http.ResponseWriter, r *http.Request) {
+	// try mining
+	go tryMining(r.URL.Query().Get("nonce"))
+}
+
+// handler that send nodes addresses
+func handleNodes(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	err := json.NewEncoder(w).Encode(API{Nodes: nodes.Addrs})
+	if err != nil {
+		panic(err)
+	}
+}
+
+// try mining
+func tryMining(nonce string) {
+	// update nonce
+	miningBlock.Nonce = nonce
+
+	// solve a problem
+	if strings.Count(
+		miningBlock.calcHash()[:miningBlock.Complexity],
+		"0") == miningBlock.Complexity {
+
+		// if solved -> validate block
+		if isValidBlock(miningBlock) {
+			// if block valid -> append to blockchain
+			// and notify nodes
+			blockchain = append(blockchain, miningBlock)
+			miningSuccessNotice <- &VMBlocks{
+				ValidBlock:  miningBlock,
+				MiningBlock: createMiningBlock(),
+			}
+		}
+	}
+}
+
+func main() {
+	// start http server
+	go func() {
+		http.HandleFunc("/blockchain", handleBlockchain)
+		http.HandleFunc("/fact", handleFact)
+		http.HandleFunc("/mine", handleMine)
+		http.HandleFunc("/nodes", handleNodes)
+
+		panic(http.ListenAndServe(":"+*hPort, nil))
+	}()
+
+	// start websocket server
+	go func() {
+		http.Handle("/", websocket.Handler(handlePeer))
+
+		panic(http.ListenAndServe(":"+*wsPort, nil))
+	}()
+
+	// notify nodes
+	notify()
+}

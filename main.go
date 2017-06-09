@@ -501,11 +501,18 @@ func tryMining(nonce string) {
 	// update nonce
 	miningBlock.Nonce = nonce
 
-	// solve a problem
-	if strings.Count(
-		miningBlock.calcHash()[:miningBlock.Complexity],
-		"0") >= miningBlock.Complexity {
+	// calc count first zeros
+	countZero := 0
+	for _, s := range miningBlock.calcHash() {
+		if string(s) == "0" {
+			countZero++
+			continue
+		}
+		break
+	}
 
+	// solve a problem
+	if countZero >= miningBlock.Complexity {
 		// if solved -> validate block
 		if isValidBlock(miningBlock) {
 			// if block valid -> append to blockchain

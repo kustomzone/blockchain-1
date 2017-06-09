@@ -16,6 +16,7 @@ import (
 const (
 	// constants are used to understand
 	// what data came from the node
+
 	// VMBLOCKS means that received valid / mining block
 	VMBLOCKS = iota
 	// FACT means that received new fact
@@ -52,7 +53,7 @@ type Block struct {
 	Nonce string `json:"nonce"`
 }
 
-// VMBlock type for send valid / mining block to other nodes
+// VMBlocks type for send valid / mining block to other nodes
 type VMBlocks struct {
 	ValidBlock  *Block `json:"valid_block"`
 	MiningBlock *Block `json:"mining_block,omitempty"`
@@ -183,7 +184,7 @@ func initNode() {
 	}
 
 	// dial to init node
-	ws, err := websocket.Dial("ws://"+*iPeer, "", origin)
+	ws, err := websocket.Dial("ws://"+*iPeer+"/p2p", "", origin)
 	if err != nil {
 		panic(err)
 	}
@@ -494,7 +495,7 @@ func main() {
 
 	// start websocket server
 	go func() {
-		http.Handle("/", websocket.Handler(handlePeer))
+		http.Handle("/p2p", websocket.Handler(handlePeer))
 
 		panic(http.ListenAndServe(":"+*wsPort, nil))
 	}()

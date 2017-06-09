@@ -55,8 +55,8 @@ type Block struct {
 
 // VMBlocks type for send valid / mining block to other nodes
 type VMBlocks struct {
-	ValidBlock  *Block `json:"valid_block"`
-	MiningBlock *Block `json:"mining_block,omitempty"`
+	ValidBlock  *Block `json:"valid_block,omitempty"`
+	MiningBlock *Block `json:"mining_block"`
 }
 
 // API type for communicate with other nodes or clients
@@ -88,11 +88,11 @@ var (
 	nodes = &Nodes{}
 
 	// initial peer addr
-	iPeer = flag.String("i", "", "set initial peer addr")
+	iNode = flag.String("i", "", "set initial node address")
 	// node http server port
-	hPort = flag.String("h", "", "set node http port")
+	hPort = flag.String("h", "", "set node http server port")
 	// node websocket server port
-	wsPort = flag.String("ws", "", "set node websocket port")
+	wsPort = flag.String("ws", "", "set node websocket server port")
 	// verbose output flag
 	v = flag.Bool("v", false, "enable verbose output")
 
@@ -107,7 +107,7 @@ func init() {
 	flag.Parse()
 
 	// if have init peer flag
-	if *iPeer != "" {
+	if *iNode != "" {
 		// init new node
 		initNode()
 	} else {
@@ -136,11 +136,11 @@ func initNode() {
 		// origin node address
 		// needed for send other nodes
 		// that they know with which node to interact
-		origin = "ws://localhost:" + *wsPort
+		origin = "ws://localhost:" + *wsPort + "/p2p"
 	)
 
 	// get current nodes
-	r, err := http.Get("http://" + *iPeer + "/nodes")
+	r, err := http.Get("http://" + *iNode + "/nodes")
 	if err != nil {
 		panic(err)
 	}
@@ -154,7 +154,7 @@ func initNode() {
 	nodes.Addrs = t.Nodes
 
 	// get current blockchain and mining block
-	r, err = http.Get("http://" + *iPeer + "/blockchain")
+	r, err = http.Get("http://" + *iNode + "/blockchain")
 	if err != nil {
 		panic(err)
 	}
@@ -184,7 +184,7 @@ func initNode() {
 	}
 
 	// dial to init node
-	ws, err := websocket.Dial("ws://"+*iPeer+"/p2p", "", origin)
+	ws, err := websocket.Dial("ws://"+*iNode+"/p2p", "", origin)
 	if err != nil {
 		panic(err)
 	}
@@ -307,10 +307,15 @@ func nodeRemove(ws *websocket.Conn) {
 // block validation
 func isValidBlock(unconfirmedBlk *Block) bool {
 	latestBlk := latestBlock()
+	unconfirmedBlk.Nonce = ""
 
 	if latestBlk.Index+1 != unconfirmedBlk.Index ||
 		latestBlk.Hash != unconfirmedBlk.PrevHash ||
 		unconfirmedBlk.calcHash() != unconfirmedBlk.Hash {
+
+		log.Println(latestBlk.Index+1, " --- ", unconfirmedBlk.Index)
+		log.Println(latestBlk.Hash, " --- ", unconfirmedBlk.PrevHash)
+		log.Println(unconfirmedBlk.calcHash(), " --- ", unconfirmedBlk.Hash)
 
 		return false
 	}
@@ -464,10 +469,14 @@ func tryMining(nonce string) {
 	// update nonce
 	miningBlock.Nonce = nonce
 
+	log.Println(" ------------------------------------------- ")
+
 	// solve a problem
 	if strings.Count(
 		miningBlock.calcHash()[:miningBlock.Complexity],
 		"0") == miningBlock.Complexity {
+
+		log.Println("preved")
 
 		// if solved -> validate block
 		if isValidBlock(miningBlock) {

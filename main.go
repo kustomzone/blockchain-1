@@ -9,7 +9,6 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -108,11 +107,9 @@ func init() {
 
 	// if have init node flag
 	if *iNode != "" {
-		info("Init node")
 		// init new node
 		initNode()
 	} else {
-		info("Init root node")
 		// init root node
 		initRootNode()
 	}
@@ -125,7 +122,7 @@ func initRootNode() {
 		Timestamp: time.Now(),
 	}}
 	// calc hash for genesis block
-	blockchain[0].Hash = blockchain[0].calcHash()
+	blockchain[0].Hash = calcHash(blockchain[0].String())
 
 	// init mining block
 	miningBlock = createMiningBlock()
@@ -142,7 +139,6 @@ func initNode() {
 	)
 
 	// get current nodes
-	info("Get current nodes from init node")
 	r, err := http.Get("http://" + *iNode + "/nodes")
 	if err != nil {
 		panic(err)
@@ -158,7 +154,6 @@ func initNode() {
 	info("Current nodes addrs", t.Nodes)
 
 	// get current blockchain and mining block
-	info("Get current blockchain / mining block from init node")
 	r, err = http.Get("http://" + *iNode + "/blockchain")
 	if err != nil {
 		panic(err)
@@ -205,7 +200,6 @@ func initNode() {
 
 // returns latest blockchain block
 func latestBlock() *Block {
-	info("Latest block", blockchain[len(blockchain)-1])
 	return blockchain[len(blockchain)-1]
 }
 
@@ -230,39 +224,38 @@ func createMiningBlock() *Block {
 	if time.Since(latestBlk.Timestamp) < time.Second*10 {
 		// if time since create latest block < 10s
 		// increase complexity
-		info("Increase complexity")
 		blk.Complexity = latestBlk.Complexity + 1
 	} else {
 		// if < 10s -> decrease
-		info("Decrease complexity")
 		blk.Complexity = latestBlk.Complexity - 1
 	}
 
-	blk.Hash = blk.calcHash()
+	blk.Hash = calcHash(blk.String())
 
 	info("Create new mining block", blk)
 	return blk
 }
 
-// calc hash for block
-func (b *Block) calcHash() string {
-	// need to convert all the facts into a string to pass in sha256
+// String returns block data in string
+func (b *Block) String() string {
 	facts := ""
 	for _, fact := range b.Facts {
 		facts += fact.Id
 		facts += fmt.Sprint(*fact.Fact)
 	}
 
-	return fmt.Sprintf("%x", sha256.Sum256([]byte(
-		b.PrevHash+b.Timestamp.String()+b.Nonce+
-			fmt.Sprint(b.Index, facts, b.Complexity)),
-	))
+	return b.PrevHash + b.Timestamp.String() + b.Nonce +
+		fmt.Sprint(b.Index, facts, b.Complexity)
+}
+
+// calc sha256 hash
+func calcHash(data string) string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(data)))
 }
 
 // receive data from node
 func receive(ws *websocket.Conn) {
 	info("Start receive data from", ws.RemoteAddr(), "node")
-
 	for {
 		t := &API{}
 
@@ -277,8 +270,6 @@ func receive(ws *websocket.Conn) {
 		switch t.Type {
 		case VMBLOCKS:
 			// if block
-			info("From", ws.RemoteAddr(), "node received VMBLOCKS", t.VMBlocks)
-
 			// valid this block
 			if isValidBlock(t.VMBlocks.ValidBlock) {
 				// if valid -> append to blockchain
@@ -298,20 +289,19 @@ func receive(ws *websocket.Conn) {
 				}
 			}
 
+			info("From", ws.RemoteAddr(), "node received VMBLOCKS", t.VMBlocks)
 			break
 		case FACT:
 			// if fact
 			// append to unconfirmed facts
-			info("From", ws.RemoteAddr(), "node received new fact", t.Fact)
 			unconfirmedFacts = append(unconfirmedFacts, t.Fact)
+			info("From", ws.RemoteAddr(), "node received new fact", t.Fact.Id, *t.Fact.Fact)
 		}
 	}
 }
 
 // remove node from nodes storage
 func nodeRemove(ws *websocket.Conn) {
-	info(ws.RemoteAddr(), "node disconnect")
-
 	// search node id
 	for i, addr := range nodes.Addrs {
 		// if found
@@ -321,22 +311,22 @@ func nodeRemove(ws *websocket.Conn) {
 			nodes.Conns = append(nodes.Conns[:i], nodes.Conns[i+1:]...)
 		}
 	}
+	info(ws.RemoteAddr(), "node disconnect")
 }
 
 // block validation
 func isValidBlock(unconfirmedBlk *Block) bool {
 	latestBlk := latestBlock()
-
-	info("Valid block", unconfirmedBlk)
-
 	unconfirmedBlk.Nonce = ""
 
 	if latestBlk.Index+1 != unconfirmedBlk.Index ||
 		latestBlk.Hash != unconfirmedBlk.PrevHash ||
-		unconfirmedBlk.calcHash() != unconfirmedBlk.Hash {
+		calcHash(unconfirmedBlk.String()) != unconfirmedBlk.Hash {
 
+		info("Block", unconfirmedBlk, "failed validation")
 		return false
 	}
+	info("Block", unconfirmedBlk, "passed validation")
 	return true
 }
 
@@ -350,13 +340,10 @@ func info(info ...interface{}) {
 // notify the nodes of a successful mining or new fact
 func notify() {
 	info("Start notify nodes")
-
 	for {
 		select {
 		case t, ok := <-miningSuccessNotice:
 			// if successful mining
-			info("Mining success notice", t)
-
 			if ok {
 				// update mining block
 				miningBlock = t.MiningBlock
@@ -375,10 +362,9 @@ func notify() {
 					}
 				}
 			}
+			info("Mining success notice", t)
 		case fact, ok := <-newFactNotice:
 			// if new fact
-			info("New fact notice", fact)
-
 			if ok {
 				// notify nodes
 				for _, node := range nodes.Conns {
@@ -391,6 +377,7 @@ func notify() {
 					}
 				}
 			}
+			info("New fact notice", fact.Id, *fact.Fact)
 		}
 	}
 }
@@ -401,15 +388,13 @@ func p2pHandler(ws *websocket.Conn) {
 	nodes.Addrs = append(nodes.Addrs, ws.RemoteAddr().String())
 	nodes.Conns = append(nodes.Conns, ws)
 
-	// start receiving
+	// start receiving data from node
 	receive(ws)
 }
 
 // handle block request
 // sending blockchain and mining block
 func blockchainHandler(w http.ResponseWriter, r *http.Request) {
-	info(r.RemoteAddr, "/blockchain")
-
 	w.Header().Set("Content-Type", "application/json")
 	err := json.NewEncoder(w).Encode(API{
 		Blockchain: blockchain,
@@ -420,14 +405,13 @@ func blockchainHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		panic(err)
 	}
+	info(r.RemoteAddr, "/blockchain")
 }
 
 // handler, that when requested by method get,
 // sends the facts of the specified block,
 // and, if requested by method post, takes a new unconfirmed fact
 func factHandler(w http.ResponseWriter, r *http.Request) {
-	info(r.RemoteAddr, "/fact", r.Method)
-
 	w.Header().Set("Content-Type", "application/json")
 
 	switch r.Method {
@@ -469,31 +453,33 @@ func factHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		t := &Fact{Id: time.Now().String(), Fact: &fact}
+		t := &Fact{Id: calcHash(time.Now().String()), Fact: &fact}
 		// notify nodes of a new fact
 		newFactNotice <- t
 		// append to other unconfirmed facts
 		unconfirmedFacts = append(unconfirmedFacts, t)
 	}
+
+	info(r.RemoteAddr, "/fact", r.Method)
 }
 
 // handle that try mining
 func mineHandler(w http.ResponseWriter, r *http.Request) {
-	info(r.RemoteAddr, "/mine")
-
 	// try mining
 	go tryMining(r.URL.Query().Get("nonce"))
+
+	info(r.RemoteAddr, "/mine")
 }
 
 // handler that send nodes addresses
 func nodesHandler(w http.ResponseWriter, r *http.Request) {
-	info(r.RemoteAddr, "/nodes")
-
 	w.Header().Set("Content-Type", "application/json")
 	err := json.NewEncoder(w).Encode(API{Nodes: nodes.Addrs})
 	if err != nil {
 		panic(err)
 	}
+
+	info(r.RemoteAddr, "/nodes")
 }
 
 // try mining
@@ -503,7 +489,7 @@ func tryMining(nonce string) {
 
 	// calc count first zeros
 	countZero := 0
-	for _, s := range miningBlock.calcHash() {
+	for _, s := range calcHash(miningBlock.String()) {
 		if string(s) == "0" {
 			countZero++
 			continue
@@ -511,20 +497,19 @@ func tryMining(nonce string) {
 		break
 	}
 
-	// solve a problem
+	// solve a task
 	if countZero >= miningBlock.Complexity {
 		// if solved -> validate block
 		if isValidBlock(miningBlock) {
 			// if block valid -> append to blockchain
 			// and notify nodes
-
-			info("Solved", nonce)
-
 			blockchain = append(blockchain, miningBlock)
 			miningSuccessNotice <- &VMBlocks{
 				ValidBlock:  miningBlock,
 				MiningBlock: createMiningBlock(),
 			}
+
+			info("Task solved", nonce)
 		}
 	}
 }

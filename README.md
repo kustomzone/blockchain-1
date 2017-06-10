@@ -111,7 +111,7 @@ RESPONSE
 {
   "facts": [
     {
-      "id": "2017-06-09 23:34:25.0546094 +0300 MSK",
+      "id": "7e2daaed828fb122fc827c7ef75ce3f6242d159c64db3ebd75360df125ca78c7",
       "fact": {
         "data": "."
       }

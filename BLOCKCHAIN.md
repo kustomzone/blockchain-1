@@ -83,11 +83,9 @@ and enters to list of unconfirmed facts.
 If block is successfully solved, 
 node creates a new block for solution on the basis of newly solved
 than sends solved block to other nodes for verification, 
-if it passes check, it is added to chain, 
-together with solved block, node sends next mining block, 
-so that all nodes solve block with same complexity.
-
-Nodes, when checking block, look through list of confirmed facts, 
+if it passes check, it is added to chain and look through list of confirmed facts, 
 if a fact is found that coincides with fact from unconfirmed ones, 
 then it is removed therefrom, compared by a unique id consisting of
-sha256 hash from creation time.
+sha256 hash from creation time, 
+together with solved block, node sends next mining block, 
+so that all nodes solve block with same complexity.

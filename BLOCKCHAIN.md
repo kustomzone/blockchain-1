@@ -10,7 +10,7 @@ the alteration of all subsequent blocks and the collusion of the network.
 
 ## How it work
 ### Root node
-It initializes the blockchain and mining block.
+It initializes the blockchain and mining block. 
 The first block is the genesis block.
 ###### Genesis block
 ```
@@ -23,36 +23,36 @@ The first block is the genesis block.
     "nonce": ""
 }
 ```
-Then you need to run the http and the websocket server, 
-to communicate between the network members 
-and to view the data of the blockchain.
-The node starts to hear other nodes and is ready to send them data.
+The node raises the http and websocket server 
+to work with other nodes and to view information about the blockchain.
 
 ### Other nodes
-First, the node requests the current blockchain, mining block and 
-the list of peers from the root node.
-Then it connects via the websocket protocol to each peer.
-Then you need to run the http and the websocket server, 
-to communicate between the network members 
-and to view the data of the blockchain.
-The node starts to hear other nodes and is ready to send them data.
+First, the node requests the initialization node the following information:
+1. Current blockchain
+2. Current mining block
+3. List of current nodes
+
+The node raises the http and websocket server 
+to work with other nodes and to view information about the blockchain.
+
+Then the node connects to each node by websockets.
 
 ### Block
-##### The block contains the following data:
-- Index
-- Hash
-- Previous block hash
-- Timestamp
-- Facts
-- Complexity
-- Nonce
+##### The block contains following data:
+- Index - block index
+- Hash - calculated from block data
+- Previous block hash - latest block hash
+- Timestamp - created time
+- Facts - confirmed facts
+- Complexity - solution complexity
+- Nonce - number to solve the block
 
 Each block contains the hash of the previous block 
 to preserve the chain integrity.
 
 ##### The block has been validated if:
-1. ts index is equal to the index latest block + 1
-2. latest block hash is equal to the previous hash field of the current block 
+1. its index is equal to the index latest block + 1
+2. latest block hash is equal to the previous hash of the current block 
 3. calculation of the hash of the current block is equal to its hash
 
 ##### The creation of the next block is:
@@ -63,7 +63,7 @@ to preserve the chain integrity.
 5. Complexity = increase if more than 10 seconds have passed since the 
 creation of the previous block, otherwise decrease
 6. Nonce = ""
-7. Hash = calculated from other block data
+7. Hash = calculated from block data
 
 ##### The decision process of the block
 To solve the block, it is necessary to find such a number (nonce)

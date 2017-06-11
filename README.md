@@ -1,4 +1,4 @@
-# Simple blockchain
+# Blockchain
 Implementation of a simple blockchain, which can store facts with the possibility of mining
 ### [How it work?](BLOCKCHAIN.md)
 ## Usage

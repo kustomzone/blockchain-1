@@ -117,6 +117,8 @@ func init() {
 
 // init root node
 func initRootNode() {
+    info("Init root node")
+
 	// init blockchain with genesis block
 	blockchain = []*Block{{
 		Timestamp: time.Now(),
@@ -130,6 +132,8 @@ func initRootNode() {
 
 // init node
 func initNode() {
+    info("Init node")
+
 	var (
 		t *API
 		// origin node address
@@ -205,6 +209,8 @@ func latestBlock() *Block {
 
 // create next mining block
 func createMiningBlock() *Block {
+    info("Creating mining block")
+
 	var (
 		// get latest block
 		latestBlk = latestBlock()
@@ -269,11 +275,15 @@ func receive(ws *websocket.Conn) {
 		// switch data type
 		switch t.Type {
 		case VMBLOCKS:
-			// if block
-			// valid this block
+            // if block
+            info("From", ws.RemoteAddr(), "node received VMBLOCKS", t.VMBlocks)
+
+            // valid this block
 			if isValidBlock(t.VMBlocks.ValidBlock) {
 				// if valid -> append to blockchain
 				blockchain = append(blockchain, t.VMBlocks.ValidBlock)
+			} else {
+				return
 			}
 
 			// update mining block
@@ -289,20 +299,22 @@ func receive(ws *websocket.Conn) {
 				}
 			}
 
-			info("From", ws.RemoteAddr(), "node received VMBLOCKS", t.VMBlocks)
-			break
+            break
 		case FACT:
 			// if fact
-			// append to unconfirmed facts
+            info("From", ws.RemoteAddr(), "node received new fact", t.Fact.Id, *t.Fact.Fact)
+
+            // append to unconfirmed facts
 			unconfirmedFacts = append(unconfirmedFacts, t.Fact)
-			info("From", ws.RemoteAddr(), "node received new fact", t.Fact.Id, *t.Fact.Fact)
 		}
 	}
 }
 
 // remove node from nodes storage
 func nodeRemove(ws *websocket.Conn) {
-	// search node id
+    info(ws.RemoteAddr(), "node disconnect")
+
+    // search node id
 	for i, addr := range nodes.Addrs {
 		// if found
 		if ws.RemoteAddr().String() == addr {
@@ -311,11 +323,12 @@ func nodeRemove(ws *websocket.Conn) {
 			nodes.Conns = append(nodes.Conns[:i], nodes.Conns[i+1:]...)
 		}
 	}
-	info(ws.RemoteAddr(), "node disconnect")
 }
 
 // block validation
 func isValidBlock(unconfirmedBlk *Block) bool {
+    info("Block validation")
+
 	latestBlk := latestBlock()
 	unconfirmedBlk.Nonce = ""
 
@@ -345,6 +358,8 @@ func notify() {
 		case t, ok := <-miningSuccessNotice:
 			// if successful mining
 			if ok {
+				info("Mining success notice", t)
+
 				// update mining block
 				miningBlock = t.MiningBlock
 				// notify nodes
@@ -362,10 +377,11 @@ func notify() {
 					}
 				}
 			}
-			info("Mining success notice", t)
 		case fact, ok := <-newFactNotice:
 			// if new fact
 			if ok {
+				info("New fact notice", fact.Id, *fact.Fact)
+
 				// notify nodes
 				for _, node := range nodes.Conns {
 					err := websocket.JSON.Send(node, API{
@@ -377,7 +393,6 @@ func notify() {
 					}
 				}
 			}
-			info("New fact notice", fact.Id, *fact.Fact)
 		}
 	}
 }
@@ -395,6 +410,8 @@ func p2pHandler(ws *websocket.Conn) {
 // handle block request
 // sending blockchain and mining block
 func blockchainHandler(w http.ResponseWriter, r *http.Request) {
+	info(r.RemoteAddr, "/blockchain")
+
 	w.Header().Set("Content-Type", "application/json")
 	err := json.NewEncoder(w).Encode(API{
 		Blockchain: blockchain,
@@ -405,15 +422,15 @@ func blockchainHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		panic(err)
 	}
-	info(r.RemoteAddr, "/blockchain")
 }
 
 // handler, that when requested by method get,
 // sends the facts of the specified block,
 // and, if requested by method post, takes a new unconfirmed fact
 func factHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+	info(r.RemoteAddr, "/fact", r.Method)
 
+	w.Header().Set("Content-Type", "application/json")
 	switch r.Method {
 	case http.MethodGet:
 
@@ -459,31 +476,31 @@ func factHandler(w http.ResponseWriter, r *http.Request) {
 		// append to other unconfirmed facts
 		unconfirmedFacts = append(unconfirmedFacts, t)
 	}
-
-	info(r.RemoteAddr, "/fact", r.Method)
 }
 
 // handle that try mining
 func mineHandler(w http.ResponseWriter, r *http.Request) {
+	info(r.RemoteAddr, "/mine")
+
 	// try mining
 	go tryMining(r.URL.Query().Get("nonce"))
-
-	info(r.RemoteAddr, "/mine")
 }
 
 // handler that send nodes addresses
 func nodesHandler(w http.ResponseWriter, r *http.Request) {
+	info(r.RemoteAddr, "/nodes")
+
 	w.Header().Set("Content-Type", "application/json")
 	err := json.NewEncoder(w).Encode(API{Nodes: nodes.Addrs})
 	if err != nil {
 		panic(err)
 	}
-
-	info(r.RemoteAddr, "/nodes")
 }
 
 // try mining
 func tryMining(nonce string) {
+	info("Try to solve task")
+
 	// update nonce
 	miningBlock.Nonce = nonce
 

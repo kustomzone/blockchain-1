@@ -11,7 +11,7 @@ the alteration of all subsequent blocks and the collusion of the network.
 ## How it work
 ### Root node
 It initializes the blockchain and mining block. 
-The first block is the genesis block.
+The first block is genesis block.
 ###### Genesis block
 ```
 {
@@ -23,51 +23,71 @@ The first block is the genesis block.
     "nonce": ""
 }
 ```
-The node raises the http and websocket server 
-to work with other nodes and to view information about the blockchain.
 
 ### Other nodes
-First, the node requests the initialization node the following information:
+First, node requests the initialization node for following information:
 1. Current blockchain
 2. Current mining block
 3. List of current nodes
 
-The node raises the http and websocket server 
-to work with other nodes and to view information about the blockchain.
+Then node connects to each node by WebSockets.
 
-Then the node connects to each node by websockets.
+### HTTP and WebSocket
+Nodes raises the HTTP and WebSocket server 
+to work with other nodes (WebSocket) and (HTTP) to view information about blockchain:
+1. Blockchain
+2. Current mining block
+3. Block facts
+4. Nodes
+5. Handler for block mining
 
 ### Block
-##### The block contains following data:
+#### Block contains following data:
 - Index - block index
-- Hash - calculated from block data
+- Hash - calculated from block data (sha256)
 - Previous block hash - latest block hash
 - Timestamp - created time
 - Facts - confirmed facts
 - Complexity - solution complexity
-- Nonce - number to solve the block
+- Nonce - number to solve block
 
-Each block contains the hash of the previous block 
-to preserve the chain integrity.
+Each block contains hash of previous block to preserve chain integrity.
 
-##### The block has been validated if:
-1. its index is equal to the index latest block + 1
-2. latest block hash is equal to the previous hash of the current block 
-3. calculation of the hash of the current block is equal to its hash
+#### Block has been validated if:
+1. its index is equal to index latest block + 1
+2. latest block hash is equal to previous hash of current block 
+3. calculation of hash of current block is equal to its hash
 
-##### The creation of the next block is:
+#### Creation of the next block is:
 1. Index = latest block index + 1
 2. Previous hash = latest block hash
 3. Timestamp = current time
 4. Facts = take unconfirmed facts
-5. Complexity = increase if more than 10 seconds have passed since the 
-creation of the previous block, otherwise decrease
+5. Complexity = increase if more than 10 seconds have passed since 
+creation of previous block, otherwise decrease
 6. Nonce = ""
 7. Hash = calculated from block data
 
-##### The decision process of the block
-To solve the block, it is necessary to find such a number (nonce)
-that this number + hash of the block contained the number of leading zeros 
-greater than or equal to the complexity of the block.
+#### Mining process
+To solve block, it is necessary to find such a number (nonce)
+that this number + hash of block contained number of leading zeros 
+greater than or equal to complexity of block.
 
 ### Work process
+When node is initialized, it will be connected to others 
+via a WebSockets, and node is ready to receive a new block or fact.
+
+When you add a new fact to node, it sends it to other nodes 
+and enters to list of unconfirmed facts.
+
+If block is successfully solved, 
+node creates a new block for solution on the basis of newly solved
+than sends solved block to other nodes for verification, 
+if it passes check, it is added to chain, 
+together with solved block, node sends next mining block, 
+so that all nodes solve block with same complexity.
+
+Nodes, when checking block, look through list of confirmed facts, 
+if a fact is found that coincides with fact from unconfirmed ones, 
+then it is removed therefrom, compared by a unique id consisting of
+sha256 hash from creation time.

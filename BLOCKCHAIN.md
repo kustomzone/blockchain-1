@@ -10,8 +10,8 @@ the alteration of all subsequent blocks and the collusion of the network.
 
 ## How it work
 ### Root node
-It initializes the blockchain and mining block. 
-The first block is genesis block.
+It initializes blockchain and mining block. 
+First block is genesis block.
 ###### Genesis block
 ```
 {
@@ -34,58 +34,67 @@ Then node connects to each node by WebSockets.
 
 ### HTTP and WebSocket
 Nodes raises the HTTP and WebSocket server 
-to work with other nodes (WebSocket) and (HTTP) to view information about blockchain:
+to work with other nodes (`WebSocket`) and (`HTTP`) to view 
+information about blockchain and mining:
 1. Blockchain
 2. Current mining block
 3. Block facts
 4. Nodes
-5. Handler for block mining
+5. Bblock mining
 
 ### Block
 #### Block contains following data:
-- Index - block index
-- Hash - calculated from block data (sha256)
-- Previous block hash - latest block hash
-- Timestamp - created time
-- Facts - confirmed facts
-- Complexity - solution complexity
-- Nonce - number to solve block
+- Index `- block index`
+- Hash `- calculated from block data (sha256)`
+- Previous block hash `- latest block hash`
+- Timestamp `- created time`
+- Facts `- confirmed facts`
+- Complexity `- solution complexity`
+- Nonce `- number to solve block`
 
 Each block contains hash of previous block to preserve chain integrity.
 
 #### Block has been validated if:
-1. its index is equal to index latest block + 1
-2. latest block hash is equal to previous hash of current block 
-3. calculation of hash of current block is equal to its hash
+1. its `index` is <b>equal</b> to latest block `index + 1`
+2. latest block `hash` is <b>equal</b> to `previous hash` of current block 
+3. `calculation of hash` of block data is <b>equal</b> to its `hash`
 
 #### Creation of the next block is:
-1. Index = latest block index + 1
-2. Previous hash = latest block hash
-3. Timestamp = current time
-4. Facts = take unconfirmed facts
-5. Complexity = increase if more than 10 seconds have passed since 
-creation of previous block, otherwise decrease
-6. Nonce = ""
-7. Hash = calculated from block data
+1. Index `= latest block index + 1`
+2. Previous hash `= latest block hash`
+3. Timestamp `= current time`
+4. Facts `= take unconfirmed facts`
+5. Complexity `= increase if more than 10 seconds have passed since
+creation of previous block, otherwise decrease`
+6. Nonce `= ""`
+7. Hash `= calculated from block data`
 
-#### Mining process
-To solve block, it is necessary to find such a number (nonce)
-that this number + hash of block contained number of leading zeros 
-greater than or equal to complexity of block.
+#### Decision of block
+To <b>solve</b> block, it is necessary to <b>find</b> such a <b>number</b> `nonce`
+that this <b>number + hash</b> of block contained number of <b>leading zeros</b> 
+<b>greater</b> than or <b>equal</b> to <b>complexity</b> of block.
 
 ### Work process
 When node is initialized, it will be connected to others 
 via a WebSockets, and node is ready to receive a new block or fact.
 
-When you add a new fact to node, it sends it to other nodes 
-and enters to list of unconfirmed facts.
+#### Facts
+When a node accepts a new fact:
+1. node adds the fact to unconfirmed facts
+2. node sends it to other nodes
 
-If block is successfully solved, 
-node creates a new block for solution on the basis of newly solved
-than sends solved block to other nodes for verification, 
-if it passes check, it is added to chain and look through list of confirmed facts, 
-if a fact is found that coincides with fact from unconfirmed ones, 
-then it is removed therefrom, compared by a unique id consisting of
-sha256 hash from creation time, 
-together with solved block, node sends next mining block, 
-so that all nodes solve block with same complexity.
+When fact came from another node:
+1. add it to unconfirmed facts
+
+#### Mining
+Node that solved block
+1. node creates a new block for solution on the basis of newly solved
+2. than sends solved block to other nodes for verification
+3. send new mining block to other nodes
+
+Node that took resolved block
+1. if it passes check, it is added to chain, if not, 
+following instructions are not met
+2. look through list of block confirmed facts, if a fact is found
+that equal with fact from unconfirmed, it is removed therefrom
+3. update mining block

@@ -117,7 +117,7 @@ func init() {
 
 // init root node
 func initRootNode() {
-    info("Init root node")
+	info("Init root node")
 
 	// init blockchain with genesis block
 	blockchain = []*Block{{
@@ -132,7 +132,7 @@ func initRootNode() {
 
 // init node
 func initNode() {
-    info("Init node")
+	info("Init node")
 
 	var (
 		t *API
@@ -209,7 +209,7 @@ func latestBlock() *Block {
 
 // create next mining block
 func createMiningBlock() *Block {
-    info("Creating mining block")
+	info("Creating mining block")
 
 	var (
 		// get latest block
@@ -275,10 +275,10 @@ func receive(ws *websocket.Conn) {
 		// switch data type
 		switch t.Type {
 		case VMBLOCKS:
-            // if block
-            info("From", ws.RemoteAddr(), "node received VMBLOCKS", t.VMBlocks)
+			// if block
+			info("From", ws.RemoteAddr(), "node received VMBLOCKS", t.VMBlocks)
 
-            // valid this block
+			// valid this block
 			if isValidBlock(t.VMBlocks.ValidBlock) {
 				// if valid -> append to blockchain
 				blockchain = append(blockchain, t.VMBlocks.ValidBlock)
@@ -299,12 +299,12 @@ func receive(ws *websocket.Conn) {
 				}
 			}
 
-            break
+			break
 		case FACT:
 			// if fact
-            info("From", ws.RemoteAddr(), "node received new fact", t.Fact.Id, *t.Fact.Fact)
+			info("From", ws.RemoteAddr(), "node received new fact", t.Fact.Id, *t.Fact.Fact)
 
-            // append to unconfirmed facts
+			// append to unconfirmed facts
 			unconfirmedFacts = append(unconfirmedFacts, t.Fact)
 		}
 	}
@@ -312,9 +312,9 @@ func receive(ws *websocket.Conn) {
 
 // remove node from nodes storage
 func nodeRemove(ws *websocket.Conn) {
-    info(ws.RemoteAddr(), "node disconnect")
+	info(ws.RemoteAddr(), "node disconnect")
 
-    // search node id
+	// search node id
 	for i, addr := range nodes.Addrs {
 		// if found
 		if ws.RemoteAddr().String() == addr {
@@ -327,7 +327,7 @@ func nodeRemove(ws *websocket.Conn) {
 
 // block validation
 func isValidBlock(unconfirmedBlk *Block) bool {
-    info("Block validation")
+	info("Block validation")
 
 	latestBlk := latestBlock()
 	unconfirmedBlk.Nonce = ""
